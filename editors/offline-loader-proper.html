@@ -944,15 +944,19 @@ See common.js and desktop-stub.js headers for related documentation.
                 })
                 .catch(function(error) {
                     console.error('Error loading document:', error);
+                    document.getElementById('loading').style.cssText =
+                        'position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;transform:none;';
                     document.getElementById('loading').innerHTML =
-                        '<div class="max-w-md text-center">' +
-                            '<p class="text-lg font-semibold text-gray-800 mb-3">' +
-                                'There was an error opening this file' +
+                        '<div class="box-border max-w-[600px] w-full font-[Segoe_UI,Tahoma,sans-serif] text-[0.75rem] text-[#646464] leading-relaxed text-center">' +
+                            '<h1 class="text-[1.2em] font-normal text-[#333] mb-4 mt-0 leading-snug">' +
+                                '<span class="underline decoration-dotted">' + filename + '</span> could not be opened' +
+                            '</h1>' +
+                            '<p class="mb-4">' +
+                                'The file may be empty, corrupted, or in an unsupported format.' +
                             '</p>' +
-                            '<p class="text-sm text-gray-500 leading-relaxed">' +
-                                'Please ensure this file isn\'t empty or corrupted.<br>' +
-                                'If the error persists, contact the team.' +
-                            '</p>' +
+                            '<div class="text-[0.867em] text-[#777] opacity-50 uppercase mt-4">' +
+                                'ERR_FILE_LOAD_FAILED' +
+                            '</div>' +
                         '</div>';
                 });
 
