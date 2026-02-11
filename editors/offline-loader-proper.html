@@ -30,6 +30,7 @@ See common.js and desktop-stub.js headers for related documentation.
 -->
 <html>
 <head>
+    <script src="/tailwindcss-browser.js"></script>
     <title>ONLYOFFICE Offline Loader</title>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=IE8"/>
@@ -943,7 +944,16 @@ See common.js and desktop-stub.js headers for related documentation.
                 })
                 .catch(function(error) {
                     console.error('Error loading document:', error);
-                    document.getElementById('loading').innerHTML = 'Error: ' + error.message;
+                    document.getElementById('loading').innerHTML =
+                        '<div class="max-w-md text-center">' +
+                            '<p class="text-lg font-semibold text-gray-800 mb-3">' +
+                                'There was an error opening this file' +
+                            '</p>' +
+                            '<p class="text-sm text-gray-500 leading-relaxed">' +
+                                'Please ensure this file isn\'t empty or corrupted.<br>' +
+                                'If the error persists, contact the team.' +
+                            '</p>' +
+                        '</div>';
                 });
 
         })();

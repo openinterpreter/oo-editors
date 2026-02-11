@@ -5,6 +5,7 @@
     "": {
       "name": "onlyoffice-electron",
       "dependencies": {
+        "@tailwindcss/browser": "4",
         "compression": "^1.8.1",
         "express": "^4.18.2",
         "xlsx": "^0.18.5",
@@ -17,6 +18,8 @@
     },
   },
   "packages": {
+    "@tailwindcss/browser": ["@tailwindcss/browser@4.1.18", "", {}, "sha512-cnAUsj2TXGslPmDEnM469b4MAFT/ifxjt+Bla/2vBTBzp/PIPo6pjKxRrd8x+S84/S1bAtEIlzbJaaJxgZUV8Q=="],
+
     "abbrev": ["abbrev@1.1.1", "", {}, "sha512-nne9/IiQ/hzIhY6pdDnbBtz7DjPTKrY00P/zvPSm5pOFkl6xuGrGnXn/VtTNNfNtAfZ9/1RtehkszU9qcTii0Q=="],
 
     "accepts": ["accepts@1.3.8", "", { "dependencies": { "mime-types": "~2.1.34", "negotiator": "0.6.3" } }, "sha512-PYAthTa2m2VKxuvSD3DPC/Gy+U+sOA1LAuT8mkmRuvw+NACSaeXEQ+NHcVF7rONl6qcaxV3Uuemwawk+7+SJLw=="],
