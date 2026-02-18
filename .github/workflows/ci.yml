@@ -59,7 +59,7 @@ jobs:
             test-cmd: bun run test:unit
           - os: macos-latest
             test-cmd: bun run test:all
-          - os: depot-windows-2022-16
+          - os: windows-latest
             test-cmd: bun run test:all
     runs-on: ${{ matrix.os }}
     steps:
@@ -96,7 +96,7 @@ jobs:
           FONT_DATA_DIR=assets/onlyoffice-fontdata bun ./scripts/generate_office_fonts.js
 
       - name: Setup server (Windows)
-        if: matrix.os == 'depot-windows-2022-16'
+        if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           bun download-converter.js
@@ -110,7 +110,7 @@ jobs:
         run: FONT_DATA_DIR=assets/onlyoffice-fontdata bun server.js &
 
       - name: Start server (Windows)
-        if: matrix.os == 'depot-windows-2022-16'
+        if: matrix.os == 'windows-latest'
         env:
           FONT_DATA_DIR: assets/onlyoffice-fontdata
         run: cmd /c "start /b bun server.js"
