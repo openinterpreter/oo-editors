@@ -109,7 +109,7 @@ jobs:
           - os: macos-15-intel
             platform: darwin-x64
             zip_name: oo-editors-darwin-x64.zip
-          - os: windows-latest
+          - os: windows-latest-16-cores
             platform: windows-x64
             zip_name: oo-editors-windows-x64.zip
     runs-on: ${{ matrix.os }}
