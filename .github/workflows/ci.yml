@@ -100,6 +100,14 @@ jobs:
         shell: pwsh
         run: |
           bun download-converter.js
+          curl -L -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
+          Start-Process -FilePath .\vc_redist.x64.exe -ArgumentList '/install','/quiet','/norestart' -Wait
+          $dlls = Get-ChildItem "$env:SystemRoot\System32" -Include 'vcruntime140*.dll','msvcp140*.dll','concrt140.dll','vcomp140.dll' -Recurse
+          foreach ($dll in $dlls) {
+            Copy-Item $dll.FullName "converter\$($dll.Name)"
+            Write-Output "Bundled $($dll.Name) ($($dll.Length) bytes)"
+          }
+          Remove-Item vc_redist.x64.exe
           bun scripts/build_allfontsgen.js
           $env:FONT_DATA_DIR="assets/onlyoffice-fontdata"; bun ./scripts/generate_office_fonts.js
 

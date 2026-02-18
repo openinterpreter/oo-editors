@@ -139,6 +139,19 @@ jobs:
       - name: Download converter
         run: bun download-converter.js
 
+      - name: Bundle VC++ runtime DLLs (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          curl -L -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
+          Start-Process -FilePath .\vc_redist.x64.exe -ArgumentList '/install','/quiet','/norestart' -Wait
+          $dlls = Get-ChildItem "$env:SystemRoot\System32" -Include 'vcruntime140*.dll','msvcp140*.dll','concrt140.dll','vcomp140.dll' -Recurse
+          foreach ($dll in $dlls) {
+            Copy-Item $dll.FullName "converter\$($dll.Name)"
+            Write-Output "Bundled $($dll.Name) ($($dll.Length) bytes)"
+          }
+          Remove-Item vc_redist.x64.exe
+
       - name: Build allfontsgen
         run: bun scripts/build_allfontsgen.js
 
