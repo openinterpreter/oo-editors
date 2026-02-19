@@ -548,7 +548,7 @@
                     comments: false,
                     help: false,
                     hideRightMenu: false,
-                    compactHeader: true
+                    compactHeader: false
                 },
                 mode: 'edit',
                 canCoAuthoring: false,
