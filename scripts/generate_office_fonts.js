@@ -93,3 +93,4 @@ if (!fs.existsSync(allFontsJs) || !fs.existsSync(fontSelectionBin)) {
 }
 
 console.log('[generate_office_fonts] Font metadata updated.');
+process.exit(0);

@@ -1,0 +1,11 @@
+# One file per line. Absolute or relative paths are accepted.
+# Lines starting with # are ignored.
+
+.github/assets/simple.xlsx
+.github/assets/medium.xlsx
+.github/assets/hard.xlsx
+.github/assets/simple.docx
+.github/assets/medium.docx
+.github/assets/medium.ppt
+.github/assets/simple.ppt
+.github/assets/simple.csv
