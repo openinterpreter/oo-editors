@@ -85,4 +85,11 @@ if (result.status !== 0) {
   fail(`allfontsgen exited with code ${result.status || 1}`);
 }
 
+const allFontsJs = path.join(OUTPUT_DIR, 'AllFonts.js');
+const fontSelectionBin = path.join(OUTPUT_DIR, 'font_selection.bin');
+
+if (!fs.existsSync(allFontsJs) || !fs.existsSync(fontSelectionBin)) {
+  fail('allfontsgen exited successfully but font metadata files were not created');
+}
+
 console.log('[generate_office_fonts] Font metadata updated.');
