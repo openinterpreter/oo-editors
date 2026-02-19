@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    var APP_VERSION = '1.0.19';
+    var APP_VERSION = '1.0.20';
 
     // NOTE(victor): sdk-all-min.js and sdk-all.js are code-split chunks from Closure
     // Compiler, NOT minified vs unminified. Both must load. The "-min" suffix means

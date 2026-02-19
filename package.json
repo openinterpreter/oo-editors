@@ -1,6 +1,6 @@
 {
   "name": "oo-editors",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "main": "server.js",
   "scripts": {
     "start": "bun download-converter.js && bun scripts/build_allfontsgen.js && cross-env FONT_DATA_DIR=assets/onlyoffice-fontdata bun ./scripts/generate_office_fonts.js && cross-env FONT_DATA_DIR=assets/onlyoffice-fontdata bun server.js",
