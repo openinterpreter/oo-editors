@@ -207,7 +207,7 @@ See common.js and desktop-stub.js headers for related documentation.
                         logo.style.cssText = 'position:fixed;top:12px;left:12px;z-index:2147483647;height:20px;max-width:120px;pointer-events:none;';
                     }
                 } catch (e) {
-                    // best-effort only
+                    // NOTE(victor): best-effort -- cross-origin iframe access may throw
                 }
             }
 
@@ -247,7 +247,7 @@ See common.js and desktop-stub.js headers for related documentation.
                         observer.observe(iframe.contentDocument.body, { childList: true, subtree: true });
                     }
                 } catch (e) {
-                    // best-effort only
+                    // NOTE(victor): best-effort -- cross-origin iframe access may throw
                 }
             }
             setInterval(ensureDesktopLogoVisible, 3000);
@@ -535,7 +535,7 @@ See common.js and desktop-stub.js headers for related documentation.
                                     }
                                 } catch (e) { console.error('[FIX] Error setting iframe ID:', e); } }, 100);
 
-                                // Force logo visibility in desktop mode (header is hidden by SDK).
+                                // NOTE(victor): SDK hides the header in desktop mode, so we force-inject the logo
                                 bindLogoRefreshHooks();
                                 scheduleLogoEnsure(8);
 

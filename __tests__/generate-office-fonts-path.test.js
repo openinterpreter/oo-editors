@@ -87,7 +87,7 @@ afterEach(() => {
 });
 
 describe('generate_office_fonts path handling', () => {
-  test('supports non-ASCII FONT_DATA_DIR paths when outputs are written', () => {
+  test('should succeed when FONT_DATA_DIR contains non-ASCII characters', () => {
     const root = makeTempDir('oo-editors-fontdata-');
     const fontDataDir = path.join(root, 'C', 'Users', 'دانيال', 'AppData', 'Roaming', 'interpreter', 'office-extension-fontdata');
 
@@ -98,7 +98,7 @@ describe('generate_office_fonts path handling', () => {
     expect(fs.existsSync(path.join(fontDataDir, 'font_selection.bin'))).toBe(true);
   });
 
-  test('fails when generator exits 0 but does not write metadata files', () => {
+  test('should fail when generator exits 0 but does not write metadata files', () => {
     const root = makeTempDir('oo-editors-fontdata-');
     const fontDataDir = path.join(root, 'C', 'Users', 'دانيال', 'AppData', 'Roaming', 'interpreter', 'office-extension-fontdata');
 
