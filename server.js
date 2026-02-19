@@ -987,7 +987,7 @@ app.get('/edit/:filename', (req, res) => {
           autosave: false,
           chat: false,
           comments: false,
-          compactHeader: false,
+          compactHeader: true,
           help: false,
           logo: {
             visible: true,

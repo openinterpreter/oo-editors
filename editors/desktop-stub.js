@@ -549,7 +549,7 @@
                     comments: false,
                     help: false,
                     hideRightMenu: false,
-                    compactHeader: false,
+                    compactHeader: true,
                     logo: {
                         visible: true,
                         image: headerLogoUrl
