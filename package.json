@@ -8,8 +8,9 @@
     "test": "bun run test:unit && bun run test:e2e",
     "test:all": "bun run test:unit && bun run test:e2e",
     "test:unit": "bun test __tests__/server-utils.test.js __tests__/desktop-stub-utils.test.js __tests__/generate-office-fonts-path.test.js && node test-url-scheme.js",
-    "test:e2e": "bun run test:console-batch && bun run test:save",
+    "test:e2e": "bun run test:console-batch && bun run test:logo && bun run test:save",
     "test:console-batch": "node test-console-batch.js",
+    "test:logo": "node __tests__/logo-header.test.js",
     "test:save": "bun test __tests__/save.test.js",
     "build": "cd sdkjs/build && npm install && npx grunt --desktop=true && cd ../.. && for e in cell word slide visio; do mkdir -p editors/sdkjs/$e && cp sdkjs/deploy/sdkjs/$e/sdk-all.js editors/sdkjs/$e/ && cp sdkjs/deploy/sdkjs/$e/sdk-all-min.js editors/sdkjs/$e/; done",
     "build:minify": "bunx esbuild server.js --minify --outfile=dist/server.js"
