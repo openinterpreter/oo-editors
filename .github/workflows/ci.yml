@@ -77,8 +77,18 @@ jobs:
           name: sdk-build
           path: editors/sdkjs
 
-      - name: Install Playwright browsers
+      - name: Cache Playwright browsers
         if: matrix.os != 'ubuntu-latest'
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - name: Install Playwright browsers
+        if: matrix.os != 'ubuntu-latest' && steps.playwright-cache.outputs.cache-hit != 'true'
         run: bunx playwright install chromium
 
       - name: Cache converter

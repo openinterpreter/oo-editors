@@ -206,7 +206,7 @@ function cleanup() {
 }
 
 async function main() {
-  const x2tPath = path.join(CONVERTER_DIR, 'x2t');
+  const x2tPath = path.join(CONVERTER_DIR, os.platform() === 'win32' ? 'x2t.exe' : 'x2t');
 
   if (fs.existsSync(x2tPath)) {
     console.log('Converter already installed at', x2tPath);
