@@ -541,6 +541,7 @@
         // Editor configuration - CRITICAL for fixing customization errors
         GetEditorConfig: function() {
             console.log('[BROWSER] GetEditorConfig called');
+            var headerLogoUrl = window.location.origin + '/web-apps/apps/common/main/resources/img/header/header-logo_s.svg';
             return JSON.stringify({
                 customization: {
                     autosave: true,
@@ -548,7 +549,11 @@
                     comments: false,
                     help: false,
                     hideRightMenu: false,
-                    compactHeader: false
+                    compactHeader: false,
+                    logo: {
+                        visible: true,
+                        image: headerLogoUrl
+                    }
                 },
                 mode: 'edit',
                 canCoAuthoring: false,

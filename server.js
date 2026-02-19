@@ -988,7 +988,11 @@ app.get('/edit/:filename', (req, res) => {
           chat: false,
           comments: false,
           compactHeader: false,
-          help: false
+          help: false,
+          logo: {
+            visible: true,
+            image: "${BASE_URL}/web-apps/apps/common/main/resources/img/header/header-logo_s.svg"
+          }
         }
       }
     });

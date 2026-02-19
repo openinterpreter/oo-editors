@@ -174,6 +174,43 @@ See common.js and desktop-stub.js headers for related documentation.
             // Run dialog dismissal every 2 seconds (much less aggressive)
             console.log('[DISMISS] Starting dialog dismissal checker');
             setInterval(dismissDialogsOnce, 2000);
+
+            function ensureDesktopLogoVisible() {
+                try {
+                    var iframe = document.querySelector('iframe[id*="placeholder"]') ||
+                                 document.querySelector('iframe[id*="frameEditor"]') ||
+                                 document.querySelector('iframe');
+                    if (!iframe || !iframe.contentDocument) return;
+
+                    var iframeDoc = iframe.contentDocument;
+                    var logoSrc = window.location.origin + '/web-apps/apps/common/main/resources/img/header/header-logo_s.svg';
+                    var logo = iframeDoc.getElementById('oo-desktop-logo');
+                    if (!logo) {
+                        logo = iframeDoc.createElement('img');
+                        logo.id = 'oo-desktop-logo';
+                        logo.alt = 'ONLYOFFICE';
+                        logo.src = logoSrc;
+                    }
+
+                    var host = iframeDoc.querySelector('#box-document-title .extra') ||
+                               iframeDoc.querySelector('.extra');
+
+                    if (host) {
+                        if (logo.parentNode !== host) {
+                            host.insertBefore(logo, host.firstChild);
+                        }
+                        logo.style.cssText = 'height:20px;max-width:120px;margin:0 12px 0 0;display:block;pointer-events:none;';
+                    } else {
+                        if (logo.parentNode !== iframeDoc.body) {
+                            iframeDoc.body.appendChild(logo);
+                        }
+                        logo.style.cssText = 'position:fixed;top:12px;left:12px;z-index:2147483647;height:20px;max-width:120px;pointer-events:none;';
+                    }
+                } catch (e) {
+                    // best-effort only
+                }
+            }
+            setInterval(ensureDesktopLogoVisible, 3000);
             // ========================================================================
 
             // Parse URL parameters
@@ -337,6 +374,7 @@ See common.js and desktop-stub.js headers for related documentation.
             }
 
             function getEditorConfig(urlParams) {
+                var headerLogoUrl = window.location.origin + '/web-apps/apps/common/main/resources/img/header/header-logo_s.svg';
                 return {
                     customization   : {
                         goback: { url: "onlyoffice.com" },
@@ -347,7 +385,11 @@ See common.js and desktop-stub.js headers for related documentation.
                         showReviewChanges: false,
                         toolbarNoTabs: false,
                         uiTheme: 'theme-classic-light',  // Prevent theme switching dialogs
-                        autosave: false  // Disable autosave completely
+                        autosave: false,  // Disable autosave completely
+                        logo: {
+                            visible: true,
+                            image: headerLogoUrl
+                        }
                     },
                     mode            : urlParams["mode"] || 'edit',
                     lang            : urlParams["lang"] || 'en',
@@ -452,6 +494,11 @@ See common.js and desktop-stub.js headers for related documentation.
                                         console.log('[FIX] Set iframe ID to:', allIframes[0].id);
                                     }
                                 } catch (e) { console.error('[FIX] Error setting iframe ID:', e); } }, 100);
+
+                                // Force logo visibility in desktop mode (header is hidden by SDK).
+                                ensureDesktopLogoVisible();
+                                setTimeout(ensureDesktopLogoVisible, 300);
+                                setTimeout(ensureDesktopLogoVisible, 1000);
 
                                 // NOTE(victor): Poll every 50ms instead of fixed 5s delay - SDK is usually ready immediately
                                 var SDK_POLL_INTERVAL = 50;
@@ -628,6 +675,7 @@ See common.js and desktop-stub.js headers for related documentation.
                                 console.log('=== DOCUMENT READY ===');
                                 console.log('[TIMING] Document ready! Total time:', (PERF.documentReady - PERF.loaderStart).toFixed(0), 'ms');
                                 logTimings();
+                                ensureDesktopLogoVisible();
 
                                 // CRITICAL FIX: Initialize change tracking to stop infinite polling
                                 // The SDK polls LocalFileGetSaved() and LocalFileGetOpenChangesCount()
