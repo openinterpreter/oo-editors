@@ -210,6 +210,46 @@ See common.js and desktop-stub.js headers for related documentation.
                     // best-effort only
                 }
             }
+
+            function scheduleLogoEnsure(frames) {
+                var remaining = typeof frames === 'number' ? frames : 4;
+                function tick() {
+                    ensureDesktopLogoVisible();
+                    remaining -= 1;
+                    if (remaining > 0 && window.requestAnimationFrame) {
+                        window.requestAnimationFrame(tick);
+                    }
+                }
+
+                if (window.requestAnimationFrame) {
+                    window.requestAnimationFrame(tick);
+                } else {
+                    ensureDesktopLogoVisible();
+                }
+            }
+
+            function bindLogoRefreshHooks() {
+                var iframe = document.querySelector('iframe[id*="placeholder"]') ||
+                             document.querySelector('iframe[id*="frameEditor"]') ||
+                             document.querySelector('iframe');
+                if (!iframe || iframe.dataset.logoHooksBound === 'true') return;
+
+                iframe.dataset.logoHooksBound = 'true';
+                iframe.addEventListener('load', function() {
+                    scheduleLogoEnsure(6);
+                });
+
+                try {
+                    if (iframe.contentDocument && iframe.contentDocument.body && window.MutationObserver) {
+                        var observer = new MutationObserver(function() {
+                            scheduleLogoEnsure(2);
+                        });
+                        observer.observe(iframe.contentDocument.body, { childList: true, subtree: true });
+                    }
+                } catch (e) {
+                    // best-effort only
+                }
+            }
             setInterval(ensureDesktopLogoVisible, 3000);
             // ========================================================================
 
@@ -496,9 +536,8 @@ See common.js and desktop-stub.js headers for related documentation.
                                 } catch (e) { console.error('[FIX] Error setting iframe ID:', e); } }, 100);
 
                                 // Force logo visibility in desktop mode (header is hidden by SDK).
-                                ensureDesktopLogoVisible();
-                                setTimeout(ensureDesktopLogoVisible, 300);
-                                setTimeout(ensureDesktopLogoVisible, 1000);
+                                bindLogoRefreshHooks();
+                                scheduleLogoEnsure(8);
 
                                 // NOTE(victor): Poll every 50ms instead of fixed 5s delay - SDK is usually ready immediately
                                 var SDK_POLL_INTERVAL = 50;
@@ -675,7 +714,7 @@ See common.js and desktop-stub.js headers for related documentation.
                                 console.log('=== DOCUMENT READY ===');
                                 console.log('[TIMING] Document ready! Total time:', (PERF.documentReady - PERF.loaderStart).toFixed(0), 'ms');
                                 logTimings();
-                                ensureDesktopLogoVisible();
+                                scheduleLogoEnsure(8);
 
                                 // CRITICAL FIX: Initialize change tracking to stop infinite polling
                                 // The SDK polls LocalFileGetSaved() and LocalFileGetOpenChangesCount()

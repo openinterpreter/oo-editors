@@ -5,8 +5,11 @@ import path from 'path';
 import { spawnSync } from 'child_process';
 
 const SCRIPT_PATH = path.resolve(import.meta.dir, '..', 'scripts', 'generate_office_fonts.js');
+const CONVERTER_DIR = path.resolve(import.meta.dir, '..', 'converter');
+const DUMMY_BIN = path.join(CONVERTER_DIR, process.platform === 'win32' ? 'allfontsgen.exe' : 'allfontsgen');
 
 const tempDirs = [];
+let createdDummyBin = false;
 
 function makeTempDir(prefix) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -42,7 +45,17 @@ childProcess.spawnSync = (_bin, args) => {
   return preloadPath;
 }
 
+function ensureDummyBin() {
+  if (!fs.existsSync(DUMMY_BIN)) {
+    fs.mkdirSync(CONVERTER_DIR, { recursive: true });
+    fs.writeFileSync(DUMMY_BIN, '');
+    fs.chmodSync(DUMMY_BIN, 0o755);
+    createdDummyBin = true;
+  }
+}
+
 function runGenerator({ fontDataDir, writeOutputs }) {
+  ensureDummyBin();
   const mockDir = makeTempDir('oo-editors-font-mock-');
   const preloadPath = writeMockPreload(mockDir);
 
@@ -66,6 +79,10 @@ afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+  if (createdDummyBin) {
+    fs.rmSync(DUMMY_BIN, { force: true });
+    createdDummyBin = false;
   }
 });
 
