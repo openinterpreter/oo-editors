@@ -4,7 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import crypto from 'crypto';
 
-const SERVER_URL = process.env.SERVER_URL || 'http://localhost:8080';
+const SERVER_URL = process.env.SERVER_URL || 'http://localhost:38123';
 const FIXTURES_DIR = path.resolve(import.meta.dir, '..', '.github/assets');
 const tempFiles = [];
 

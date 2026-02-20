@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const SERVER_PORT = Number.parseInt(process.env.SERVER_PORT || '8080', 10);
+const SERVER_PORT = Number.parseInt(process.env.SERVER_PORT || '38123', 10);
 const SERVER_URL = process.env.SERVER_URL || `http://localhost:${SERVER_PORT}`;
 const LOAD_TIMEOUT = Number.parseInt(process.env.LOAD_TIMEOUT || '30000', 10);
 const LOGO_TIMEOUT = Number.parseInt(process.env.LOGO_TIMEOUT || '30000', 10);

@@ -131,7 +131,7 @@ EDIT-BUILD-TEST WORKFLOW
 4. Start server and test:
    bun run server
 
-5. Open browser to http://localhost:8080/open?filepath=/path/to/file.xlsx
+5. Open browser to http://localhost:38123/open?filepath=/path/to/file.xlsx
 
 
 RUNTIME LOADING

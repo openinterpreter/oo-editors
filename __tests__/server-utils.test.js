@@ -245,12 +245,12 @@ describe('generateX2TConfig', () => {
 
 describe('extractFilePathFromUrl', () => {
   test('extracts path from OnlyOffice URL format', () => {
-    const url = 'http://localhost:8080/api/onlyoffice/files/Users/test/file.xlsx';
+    const url = 'http://localhost:38123/api/onlyoffice/files/Users/test/file.xlsx';
     expect(extractFilePathFromUrl(url)).toBe('/Users/test/file.xlsx');
   });
 
   test('handles URL-encoded paths', () => {
-    const url = 'http://localhost:8080/api/onlyoffice/files/Users/test/my%20file.xlsx';
+    const url = 'http://localhost:38123/api/onlyoffice/files/Users/test/my%20file.xlsx';
     expect(extractFilePathFromUrl(url)).toBe('/Users/test/my file.xlsx');
   });
 
@@ -260,8 +260,8 @@ describe('extractFilePathFromUrl', () => {
   });
 
   test('returns null for non-matching URLs', () => {
-    expect(extractFilePathFromUrl('http://localhost:8080/other/path')).toBe(null);
-    expect(extractFilePathFromUrl('http://localhost:8080/api/convert')).toBe(null);
+    expect(extractFilePathFromUrl('http://localhost:38123/other/path')).toBe(null);
+    expect(extractFilePathFromUrl('http://localhost:38123/api/convert')).toBe(null);
   });
 
   test('returns null for non-URL input', () => {

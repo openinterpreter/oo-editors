@@ -3,13 +3,13 @@
 <head>
     <title>Image Load Test</title>
     <script>
-        const SERVER_PORT = 8080;
+        const SERVER_PORT = 38123;
         const SERVER_BASE_URL = 'http://localhost:' + SERVER_PORT;
     </script>
 </head>
 <body>
     <h1>Testing Image Load</h1>
-    <img id="test" src="http://localhost:8080/api/media/ba3e5be21444fe8a9558f25ed5ee35f4/image1.jpg"
+    <img id="test" src="http://localhost:38123/api/media/ba3e5be21444fe8a9558f25ed5ee35f4/image1.jpg"
          onload="console.log('Image loaded successfully!', this.naturalWidth, 'x', this.naturalHeight)"
          onerror="console.error('Image failed to load!')"
          style="border: 2px solid blue;">
