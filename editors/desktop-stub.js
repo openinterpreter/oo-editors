@@ -66,7 +66,7 @@
                 // Synchronously upload image to server for persistence
                 var xhr = new XMLHttpRequest();
                 var serverFilename = 'dropped_' + Date.now() + '_' + i + '.' + ext;
-                xhr.open('POST', 'http://localhost:8080/api/media/' + fileHash + '?filename=' + encodeURIComponent(serverFilename), false);
+                xhr.open('POST', window.location.origin + '/api/media/' + fileHash + '?filename=' + encodeURIComponent(serverFilename), false);
                 xhr.setRequestHeader('Content-Type', 'application/octet-stream');
 
                 // Send File directly (File extends Blob, XHR handles it)
@@ -96,8 +96,7 @@
     console.log('Creating AscDesktopEditor stub for browser environment');
 
     // Server configuration
-    var SERVER_PORT = 8080;
-    var SERVER_BASE_URL = 'http://localhost:' + SERVER_PORT;
+    var SERVER_BASE_URL = window.location.origin;
 
     // Import utils from global (loaded before this script)
     var utils = window.DesktopStubUtils || {};
