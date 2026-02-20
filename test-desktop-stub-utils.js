@@ -22,24 +22,24 @@ console.log('\n=== buildMediaUrl Tests ===\n');
 
 console.log('Valid inputs:');
 test('builds URL with all params',
-  utils.buildMediaUrl('http://localhost:8080', 'abc123', 'image.png') ===
-  'http://localhost:8080/api/media/abc123/image.png');
+  utils.buildMediaUrl('http://localhost:38123', 'abc123', 'image.png') ===
+  'http://localhost:38123/api/media/abc123/image.png');
 
 test('encodes filename with spaces',
-  utils.buildMediaUrl('http://localhost:8080', 'abc', 'my image.png').includes('my%20image.png'));
+  utils.buildMediaUrl('http://localhost:38123', 'abc', 'my image.png').includes('my%20image.png'));
 
 test('encodes unicode filename',
-  utils.buildMediaUrl('http://localhost:8080', 'abc', '画像.png').includes('%E7%94%BB%E5%83%8F.png'));
+  utils.buildMediaUrl('http://localhost:38123', 'abc', '画像.png').includes('%E7%94%BB%E5%83%8F.png'));
 
 console.log('\nMissing fileHash (BUG FIX - should return null):');
 test('returns null when fileHash is undefined',
-  utils.buildMediaUrl('http://localhost:8080', undefined, 'image.png') === null);
+  utils.buildMediaUrl('http://localhost:38123', undefined, 'image.png') === null);
 
 test('returns null when fileHash is null',
-  utils.buildMediaUrl('http://localhost:8080', null, 'image.png') === null);
+  utils.buildMediaUrl('http://localhost:38123', null, 'image.png') === null);
 
 test('returns null when fileHash is empty string',
-  utils.buildMediaUrl('http://localhost:8080', '', 'image.png') === null);
+  utils.buildMediaUrl('http://localhost:38123', '', 'image.png') === null);
 
 console.log('\n=== Results ===');
 console.log(`Passed: ${passed}`);

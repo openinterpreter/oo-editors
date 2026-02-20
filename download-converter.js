@@ -28,7 +28,7 @@ const os = require('os');
 // Project files modified from upstream (excluding test/CI/docs):
 //
 //   Server / Core:
-//     server.js                    - Express server (port 8080)
+//     server.js                    - Express server (dynamic port, default 38123)
 //     server-utils.js              - Server utility functions (added)
 //     download-converter.js        - Downloads ONLYOFFICE Desktop, extracts x2t (added)
 //     package.json                 - Dependencies and scripts

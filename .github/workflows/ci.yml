@@ -130,7 +130,7 @@ jobs:
         shell: bash
         run: |
           for i in {1..30}; do
-            curl -s http://localhost:8080 > /dev/null && break
+            curl -s http://localhost:38123 > /dev/null && break
             sleep 1
           done
 

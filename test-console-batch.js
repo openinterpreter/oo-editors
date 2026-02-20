@@ -4,7 +4,7 @@ const path = require('path');
 const os = require('os');
 const http = require('http');
 
-const SERVER_PORT = Number.parseInt(process.env.SERVER_PORT || '8080', 10);
+const SERVER_PORT = Number.parseInt(process.env.SERVER_PORT || '38123', 10);
 const SERVER_URL = process.env.SERVER_URL || `http://localhost:${SERVER_PORT}`;
 const BATCH_SIZE = Number.parseInt(process.env.BATCH_SIZE || '5', 10);
 const LOAD_TIMEOUT = Number.parseInt(process.env.LOAD_TIMEOUT || '5000', 10);

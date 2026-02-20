@@ -25,7 +25,7 @@ function test(description, condition) {
 console.log('\n=== URL Scheme Detection Tests ===\n');
 
 console.log('URLs WITH scheme (should match - no file:// prepended):');
-test('http://localhost:8080/api/doc-base/abc', schemeRegex.test('http://localhost:8080/api/doc-base/abc'));
+test('http://localhost:38123/api/doc-base/abc', schemeRegex.test('http://localhost:38123/api/doc-base/abc'));
 test('https://example.com/path', schemeRegex.test('https://example.com/path'));
 test('file:///path/to/document', schemeRegex.test('file:///path/to/document'));
 test('file://localhost/path', schemeRegex.test('file://localhost/path'));

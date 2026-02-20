@@ -260,18 +260,18 @@ describe('extractMediaFilename', () => {
 
 describe('buildMediaUrl', () => {
   test('constructs correct URL', () => {
-    const result = buildMediaUrl('http://localhost:8080', 'abc123', 'image.png');
-    expect(result).toBe('http://localhost:8080/api/media/abc123/image.png');
+    const result = buildMediaUrl('http://localhost:38123', 'abc123', 'image.png');
+    expect(result).toBe('http://localhost:38123/api/media/abc123/image.png');
   });
 
   test('encodes filename', () => {
-    const result = buildMediaUrl('http://localhost:8080', 'abc123', 'my image.png');
-    expect(result).toBe('http://localhost:8080/api/media/abc123/my%20image.png');
+    const result = buildMediaUrl('http://localhost:38123', 'abc123', 'my image.png');
+    expect(result).toBe('http://localhost:38123/api/media/abc123/my%20image.png');
   });
 
   test('handles special characters', () => {
-    const result = buildMediaUrl('http://localhost:8080', 'abc123', 'image (1).png');
-    expect(result).toBe('http://localhost:8080/api/media/abc123/image%20(1).png');
+    const result = buildMediaUrl('http://localhost:38123', 'abc123', 'image (1).png');
+    expect(result).toBe('http://localhost:38123/api/media/abc123/image%20(1).png');
   });
 });
 
@@ -283,17 +283,17 @@ describe('extractBlobUrl', () => {
   });
 
   test('extracts blob URL from string', () => {
-    const blobUrl = 'blob:http://localhost:8080/550e8400-e29b-41d4-a716-446655440000';
+    const blobUrl = 'blob:http://localhost:38123/550e8400-e29b-41d4-a716-446655440000';
     expect(extractBlobUrl(blobUrl)).toBe(blobUrl);
   });
 
   test('extracts blob URL from wrapped path', () => {
-    const wrapped = 'file:///path/to/blob:http://localhost:8080/550e8400-e29b-41d4-a716-446655440000/media/image.png';
-    expect(extractBlobUrl(wrapped)).toBe('blob:http://localhost:8080/550e8400-e29b-41d4-a716-446655440000');
+    const wrapped = 'file:///path/to/blob:http://localhost:38123/550e8400-e29b-41d4-a716-446655440000/media/image.png';
+    expect(extractBlobUrl(wrapped)).toBe('blob:http://localhost:38123/550e8400-e29b-41d4-a716-446655440000');
   });
 
   test('returns null for non-blob paths', () => {
-    expect(extractBlobUrl('http://localhost:8080/image.png')).toBe(null);
+    expect(extractBlobUrl('http://localhost:38123/image.png')).toBe(null);
     expect(extractBlobUrl('file:///path/to/image.png')).toBe(null);
     expect(extractBlobUrl('/media/image.png')).toBe(null);
   });
