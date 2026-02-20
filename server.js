@@ -26,7 +26,7 @@ const FONT_DATA_DIR = isAbsolutePath(process.env.FONT_DATA_DIR)
 
 const app = express();
 app.use(compression());
-const PORT = 8080;
+const PORT = Number.parseInt(process.env.PORT || '38123', 10);
 const BASE_URL = `http://localhost:${PORT}`;
 
 // Enable CORS
