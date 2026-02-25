@@ -862,6 +862,8 @@ app.get('/load/:filename', (req, res) => {
 // ONLY supports absolute paths via query parameter
 app.get('/open', (req, res) => {
   const filepath = req.query.filepath;
+  // NOTE(victor): OnlyOffice expects ISO 639-1 codes (e.g. "es", "fr"), not full names like "spanish"
+  const lang = typeof req.query.lang === 'string' ? req.query.lang : '';
 
   if (!filepath) {
     return res.status(400).json({ error: 'filepath query parameter is required' });
@@ -884,7 +886,18 @@ app.get('/open', (req, res) => {
   console.log(`[OPEN] Document URL: ${documentUrl}`);
 
   // Redirect to offline loader with parameters
-  res.redirect(`/offline-loader-proper.html?url=${encodeURIComponent(documentUrl)}&title=${encodeURIComponent(filename)}&filepath=${encodeURIComponent(filepath)}&filetype=${ext}&doctype=${docType}`);
+  const redirectParams = new URLSearchParams({
+    url: documentUrl,
+    title: filename,
+    filepath: String(filepath),
+    filetype: ext,
+    doctype: docType,
+  });
+  if (lang) {
+    redirectParams.set('lang', lang);
+  }
+
+  res.redirect(`/offline-loader-proper.html?${redirectParams.toString()}`);
 });
 
 // API Endpoint: Serve raw/original file (not converted)

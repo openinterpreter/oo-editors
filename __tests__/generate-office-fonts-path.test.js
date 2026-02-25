@@ -72,6 +72,7 @@ function runGenerator({ fontDataDir, writeOutputs }) {
   return spawnSync('node', [SCRIPT_PATH], {
     env,
     encoding: 'utf8',
+    timeout: 10000,
   });
 }
 
@@ -89,7 +90,7 @@ afterEach(() => {
 describe('generate_office_fonts path handling', () => {
   test('should succeed when FONT_DATA_DIR contains non-ASCII characters', () => {
     const root = makeTempDir('oo-editors-fontdata-');
-    const fontDataDir = path.join(root, 'C', 'Users', 'دانيال', 'AppData', 'Roaming', 'interpreter', 'office-extension-fontdata');
+    const fontDataDir = path.join(root, 'دانيال', 'fontdata');
 
     const result = runGenerator({ fontDataDir, writeOutputs: true });
 
@@ -100,7 +101,7 @@ describe('generate_office_fonts path handling', () => {
 
   test('should fail when generator exits 0 but does not write metadata files', () => {
     const root = makeTempDir('oo-editors-fontdata-');
-    const fontDataDir = path.join(root, 'C', 'Users', 'دانيال', 'AppData', 'Roaming', 'interpreter', 'office-extension-fontdata');
+    const fontDataDir = path.join(root, 'دانيال', 'fontdata');
 
     const result = runGenerator({ fontDataDir, writeOutputs: false });
 
