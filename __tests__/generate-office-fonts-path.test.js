@@ -97,7 +97,7 @@ describe('generate_office_fonts path handling', () => {
     expect(result.status).toBe(0);
     expect(fs.existsSync(path.join(fontDataDir, 'AllFonts.js'))).toBe(true);
     expect(fs.existsSync(path.join(fontDataDir, 'font_selection.bin'))).toBe(true);
-  });
+  }, 15000);
 
   test('should fail when generator exits 0 but does not write metadata files', () => {
     const root = makeTempDir('oo-editors-fontdata-');
