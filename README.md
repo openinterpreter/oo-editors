@@ -4,7 +4,7 @@
 
 Local browser-based document editor for Excel, Word, and PowerPoint files. Runs the [ONLYOFFICE](https://github.com/ONLYOFFICE/sdkjs) JavaScript SDK in a browser with a Node.js server handling format conversion.
 
-Used as a downloadable extension in the Interpreter Workstation app.
+Used as a downloadable extension in the Interpreter Desktop app.
 
 ## Document Flow
 
