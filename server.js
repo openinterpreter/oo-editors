@@ -862,6 +862,7 @@ app.get('/load/:filename', (req, res) => {
 // ONLY supports absolute paths via query parameter
 app.get('/open', (req, res) => {
   const filepath = req.query.filepath;
+  // NOTE(victor): OnlyOffice expects ISO 639-1 codes (e.g. "es", "fr"), not full names like "spanish"
   const lang = typeof req.query.lang === 'string' ? req.query.lang : '';
 
   if (!filepath) {
