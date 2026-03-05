@@ -57,7 +57,7 @@ jobs:
         include:
           - os: depot-ubuntu-latest
             test-cmd: bun run test:unit
-          - os: depot-macos-latest
+          - os: macos-latest
             test-cmd: bun run test:all
           - os: depot-windows-latest
             test-cmd: bun run test:all
@@ -99,7 +99,7 @@ jobs:
           key: converter-${{ runner.os }}-${{ runner.arch }}-v9.1.0
 
       - name: Setup server (macOS)
-        if: matrix.os == 'depot-macos-latest'
+        if: matrix.os == 'macos-latest'
         run: |
           bun download-converter.js
           bun scripts/build_allfontsgen.js
@@ -116,7 +116,7 @@ jobs:
           $env:FONT_DATA_DIR="assets/onlyoffice-fontdata"; bun ./scripts/generate_office_fonts.js
 
       - name: Start server (macOS)
-        if: matrix.os == 'depot-macos-latest'
+        if: matrix.os == 'macos-latest'
         run: FONT_DATA_DIR=assets/onlyoffice-fontdata bun server.js &
 
       - name: Start server (Windows)
