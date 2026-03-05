@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +24,7 @@ jobs:
 
   version-bump:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     outputs:
       version: ${{ steps.bump.outputs.version }}
       tag: ${{ steps.bump.outputs.tag }}
@@ -53,7 +53,7 @@ jobs:
 
   build-sdk:
     needs: version-bump
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,13 +103,13 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-14
+          - os: depot-macos-14
             platform: darwin-arm64
             zip_name: oo-editors-darwin-arm64.zip
           - os: macos-15-intel
             platform: darwin-x64
             zip_name: oo-editors-darwin-x64.zip
-          - os: windows-latest
+          - os: depot-windows-latest
             platform: windows-x64
             zip_name: oo-editors-windows-x64.zip
     runs-on: ${{ matrix.os }}
@@ -189,7 +189,7 @@ jobs:
 
   release:
     needs: [version-bump, build]
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4

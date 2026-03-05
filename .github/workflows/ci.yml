@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-sdk:
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -55,11 +55,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: depot-ubuntu-latest
             test-cmd: bun run test:unit
-          - os: macos-latest
+          - os: depot-macos-latest
             test-cmd: bun run test:all
-          - os: windows-latest
+          - os: depot-windows-latest
             test-cmd: bun run test:all
     runs-on: ${{ matrix.os }}
     steps:
@@ -78,7 +78,7 @@ jobs:
           path: editors/sdkjs
 
       - name: Cache Playwright browsers
-        if: matrix.os != 'ubuntu-latest'
+        if: matrix.os != 'depot-ubuntu-latest'
         id: playwright-cache
         uses: actions/cache@v4
         with:
@@ -88,25 +88,25 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - name: Install Playwright browsers
-        if: matrix.os != 'ubuntu-latest' && steps.playwright-cache.outputs.cache-hit != 'true'
+        if: matrix.os != 'depot-ubuntu-latest' && steps.playwright-cache.outputs.cache-hit != 'true'
         run: bunx playwright install chromium
 
       - name: Cache converter
-        if: matrix.os != 'ubuntu-latest'
+        if: matrix.os != 'depot-ubuntu-latest'
         uses: actions/cache@v4
         with:
           path: converter
           key: converter-${{ runner.os }}-${{ runner.arch }}-v9.1.0
 
       - name: Setup server (macOS)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'depot-macos-latest'
         run: |
           bun download-converter.js
           bun scripts/build_allfontsgen.js
           FONT_DATA_DIR=assets/onlyoffice-fontdata bun ./scripts/generate_office_fonts.js
 
       - name: Setup server (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'depot-windows-latest'
         shell: pwsh
         run: |
           bun download-converter.js
@@ -116,17 +116,17 @@ jobs:
           $env:FONT_DATA_DIR="assets/onlyoffice-fontdata"; bun ./scripts/generate_office_fonts.js
 
       - name: Start server (macOS)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'depot-macos-latest'
         run: FONT_DATA_DIR=assets/onlyoffice-fontdata bun server.js &
 
       - name: Start server (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'depot-windows-latest'
         env:
           FONT_DATA_DIR: assets/onlyoffice-fontdata
         run: cmd /c "start /b bun server.js"
 
       - name: Wait for server
-        if: matrix.os != 'ubuntu-latest'
+        if: matrix.os != 'depot-ubuntu-latest'
         shell: bash
         run: |
           for i in {1..30}; do
