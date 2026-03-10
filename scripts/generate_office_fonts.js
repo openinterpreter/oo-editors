@@ -26,6 +26,7 @@ if (!process.env.FONT_DATA_DIR) {
 }
 
 const OUTPUT_DIR = process.env.FONT_DATA_DIR;
+const ADDITIONAL_FONT_DIRS = parseAdditionalFontDirs(process.env.ADDITIONAL_FONT_DIRS);
 
 // Early return if font metadata files already exist
 function checkExistingFonts() {
@@ -66,6 +67,7 @@ const INPUT_DIR = path.join(OUTPUT_DIR, 'fonts');
 
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 fs.mkdirSync(INPUT_DIR, { recursive: true });
+prepareInputDirectory(INPUT_DIR, ADDITIONAL_FONT_DIRS);
 
 const args = [
   '--use-system=true',
@@ -94,3 +96,45 @@ if (!fs.existsSync(allFontsJs) || !fs.existsSync(fontSelectionBin)) {
 
 console.log('[generate_office_fonts] Font metadata updated.');
 process.exit(0);
+
+function parseAdditionalFontDirs(value) {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => path.resolve(entry));
+}
+
+function prepareInputDirectory(inputDir, additionalDirs) {
+  for (let i = 0; i < additionalDirs.length; i += 1) {
+    const targetDir = additionalDirs[i];
+    const stats = safeStat(targetDir);
+    if (!stats || !stats.isDirectory()) {
+      fail(`additional font directory does not exist or is not a directory: ${targetDir}`);
+    }
+
+    const linkPath = path.join(inputDir, `additional-font-dir-${i + 1}`);
+    recreateSymlink(linkPath, targetDir);
+  }
+}
+
+function recreateSymlink(linkPath, targetPath) {
+  if (fs.existsSync(linkPath)) {
+    fs.rmSync(linkPath, { recursive: true, force: true });
+  }
+
+  const type = process.platform === 'win32' ? 'junction' : 'dir';
+  fs.symlinkSync(targetPath, linkPath, type);
+}
+
+function safeStat(targetPath) {
+  try {
+    return fs.statSync(targetPath);
+  } catch {
+    return null;
+  }
+}
