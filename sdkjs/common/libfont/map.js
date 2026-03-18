@@ -1480,6 +1480,10 @@
 			_korean_lang.Ranges.push(0x318F);
 			_korean_lang.Ranges.push(0xAC00);
 			_korean_lang.Ranges.push(0xD7AF);
+			_korean_lang.Ranges.push(0x4E00);
+			_korean_lang.Ranges.push(0x9FFF);
+			_korean_lang.Ranges.push(0xF900);
+			_korean_lang.Ranges.push(0xFAFF);
 			_korean_lang.Ranges.push(0xFF00);
 			_korean_lang.Ranges.push(0xFFEF);
 			_korean_lang.CodePage1Mask = (1 << 19);

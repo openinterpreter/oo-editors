@@ -646,7 +646,7 @@
 		new CRange(0x3300, 0x33FF, c_oUnicodeRangesLID.CJK_Compatibility, lcid_unknown, [0, (1 << c_oUnicodeRangeOS2_2.CJK_Compatibility), 0, 0, 0, 0]),
 		new CRange(0x3400, 0x4DBF, c_oUnicodeRangesLID.CJK_Unified_Ideographs_Extension, lcid_unknown, [0, (1 << c_oUnicodeRangeOS2_2.CJK_Unified_Ideographs), 0, 0, (1 << c_oCodePagesOS2_1.Chinese_Simplified) | (1 << c_oCodePagesOS2_1.Chinese_Traditional), 0]),
 		new CRange(0x4DC0, 0x4DFF, c_oUnicodeRangesLID.Yijing_Hexagram_Symbols, lcid_unknown, [0, 0, 0, (1 << c_oUnicodeRangeOS2_4.Yijing_Hexagram_Symbols), (1 << c_oCodePagesOS2_1.Chinese_Simplified) | (1 << c_oCodePagesOS2_1.Chinese_Traditional), 0]),
-		new CRange(0x4E00, 0x9FFF, c_oUnicodeRangesLID.CJK_Unified_Ideographs, lcid_unknown, [0, (1 << c_oUnicodeRangeOS2_2.CJK_Unified_Ideographs), 0, 0, (1 << c_oCodePagesOS2_1.Chinese_Simplified) | (1 << c_oCodePagesOS2_1.Chinese_Traditional) | (1 << c_oCodePagesOS2_1.JIS_Japan) | (1 << c_oCodePagesOS2_1.OEM_Character_Set), 0]),
+		new CRange(0x4E00, 0x9FFF, c_oUnicodeRangesLID.CJK_Unified_Ideographs, lcid_unknown, [0, (1 << c_oUnicodeRangeOS2_2.CJK_Unified_Ideographs), 0, 0, (1 << c_oCodePagesOS2_1.Chinese_Simplified) | (1 << c_oCodePagesOS2_1.Chinese_Traditional) | (1 << c_oCodePagesOS2_1.JIS_Japan) | (1 << c_oCodePagesOS2_1.Korean_Wansung) | (1 << c_oCodePagesOS2_1.OEM_Character_Set), 0]),
 		new CRange(0xA000, 0xA48F, c_oUnicodeRangesLID.Yi_Syllables, lcid_unknown, [0, 0, (1 << c_oUnicodeRangeOS2_3.Yi_Syllables), 0, 0, 0]),
 		new CRange(0xA490, 0xA4CF, c_oUnicodeRangesLID.Yi_Radicals, lcid_unknown, [0, 0, (1 << c_oUnicodeRangeOS2_3.Yi_Radicals), 0, 0, 0]),
 		new CRange(0xA4D0, 0xA4FF, c_oUnicodeRangesLID.Lisu, lcid_unknown, []),
@@ -679,7 +679,7 @@
 		new CRange(0xDB80, 0xDBFF, c_oUnicodeRangesLID.High_Private_Use_Surrogates, lcid_unknown, []),
 		new CRange(0xDC00, 0xDFFF, c_oUnicodeRangesLID.Low_Surrogates, lcid_unknown, []),
 		new CRange(0xE000, 0xF8FF, c_oUnicodeRangesLID.Private_Use_Area, lcid_unknown, [0, (1 << c_oUnicodeRangeOS2_2.Private_Use_Area_plane_0), 0, 0, 0, 0]),
-		new CRange(0xF900, 0xFAFF, c_oUnicodeRangesLID.CJK_Compatibility_Ideographs, lcid_unknown, [0, (1 << c_oUnicodeRangeOS2_2.CJK_Compatibility_Ideographs), 0, 0, (1 << c_oCodePagesOS2_1.Chinese_Simplified) | (1 << c_oCodePagesOS2_1.Chinese_Traditional), 0]),
+		new CRange(0xF900, 0xFAFF, c_oUnicodeRangesLID.CJK_Compatibility_Ideographs, lcid_unknown, [0, (1 << c_oUnicodeRangeOS2_2.CJK_Compatibility_Ideographs), 0, 0, (1 << c_oCodePagesOS2_1.Chinese_Simplified) | (1 << c_oCodePagesOS2_1.Chinese_Traditional) | (1 << c_oCodePagesOS2_1.Korean_Wansung), 0]),
 		new CRange(0xFB00, 0xFB4F, c_oUnicodeRangesLID.Alphabetic_Presentation_Forms, lcid_unknown, [0, (1 << c_oUnicodeRangeOS2_2.Alphabetic_Presentation_Forms), 0, 0, 0, 0]),
 		new CRange(0xFB50, 0xFDFF, c_oUnicodeRangesLID.Arabic_Presentation_Forms_A, lcid_unknown, [0, (1 << c_oUnicodeRangeOS2_2.Arabic_Presentation_Forms_A), 0, 0, (1 << c_oCodePagesOS2_1.Arabic), (1 << c_oCodePagesOS2_2.Arabic) | (1 << c_oCodePagesOS2_2.Arabic_708)]),
 		new CRange(0xFE00, 0xFE0F, c_oUnicodeRangesLID.Variation_Selectors, lcid_unknown,  [0, 0, (1 << c_oUnicodeRangeOS2_3.Variation_Selectors), 0, 0, 0]),
@@ -1006,7 +1006,9 @@
 				"SimSun" : 18,
 				"Nirmala UI" : 19,
 				"Batang" : 20,
-				"MS Mincho" : 21
+				"MS Mincho" : 21,
+				"Apple SD Gothic Neo" : 22,
+				"AppleMyungjo" : 23
 			};
 
 			var _fontName = "";
