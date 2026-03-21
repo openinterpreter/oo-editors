@@ -139,41 +139,6 @@ See common.js and desktop-stub.js headers for related documentation.
 
             console.log('=== OFFLINE LOADER STARTING ===');
 
-            // ========================================================================
-            // DIALOG DISMISSAL - Click "Got it" buttons to properly dismiss dialogs
-            // This runs periodically but tracks what it's already dismissed
-            // ========================================================================
-            var dismissedDialogs = new Set();
-
-            function dismissDialogsOnce() {
-                try {
-                    // Dismiss dialogs in iframe
-                    var iframe = document.querySelector('iframe[id*="placeholder"]') ||
-                                document.querySelector('iframe[id*="frameEditor"]') ||
-                                document.querySelector('iframe');
-
-                    if (iframe && iframe.contentWindow && iframe.contentDocument) {
-                        var iframeDoc = iframe.contentDocument;
-
-                        // Find and click "Got it" buttons ONCE
-                        iframeDoc.querySelectorAll('button').forEach(function(btn) {
-                            var text = (btn.textContent || btn.innerText || '').trim().toLowerCase();
-                            if ((text === 'got it' || text === 'ok') && !btn.dataset.dismissed) {
-                                console.log('[DISMISS] Clicking button:', text);
-                                btn.click();
-                                btn.dataset.dismissed = 'true';
-                            }
-                        });
-                    }
-                } catch(e) {
-                    // Silently fail
-                }
-            }
-
-            // Run dialog dismissal every 2 seconds (much less aggressive)
-            console.log('[DISMISS] Starting dialog dismissal checker');
-            setInterval(dismissDialogsOnce, 2000);
-
             function ensureDesktopLogoVisible() {
                 try {
                     var iframe = document.querySelector('iframe[id*="placeholder"]') ||
