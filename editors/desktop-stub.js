@@ -117,6 +117,35 @@
         return '';
     }
 
+    function detectThemeConfig() {
+        var params = new URLSearchParams(window.location.search || '');
+        var theme = (params.get('theme') || 'system').toLowerCase();
+
+        if (theme === 'dark') {
+            return {
+                id: 'theme-night',
+                type: 'dark',
+                system: 'dark'
+            };
+        }
+
+        if (theme === 'light') {
+            return {
+                id: 'theme-classic-light',
+                type: 'light',
+                system: 'light'
+            };
+        }
+
+        return {
+            id: 'theme-system',
+            type: 'light',
+            system: 'light'
+        };
+    }
+
+    var initialThemeConfig = detectThemeConfig();
+
     function shouldUseEastAsiaVariant() {
         var lang = detectLanguageCode();
         if (!lang && window.Common && window.Common.Locale && typeof window.Common.Locale.getCurrentLanguage === 'function') {
@@ -264,11 +293,7 @@
         },
 
         // Theme support
-        theme: {
-            id: 'theme-classic-light',
-            type: 'light',
-            system: 'light'
-        },
+        theme: { ...initialThemeConfig },
 
         // Crypto plugin support (stub)
         CryptoMode: 0,
@@ -1657,11 +1682,7 @@
 
     // Create RendererProcessVariable stub for theme and RTL support
     window.RendererProcessVariable = {
-        theme: {
-            id: 'theme-classic-light',
-            type: 'light',
-            system: 'light'
-        },
+        theme: { ...initialThemeConfig },
         localthemes: {},
         rtl: false
     };
