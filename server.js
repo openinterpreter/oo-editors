@@ -686,6 +686,9 @@ app.post('/api/save', (req, res) => {
   // Use hash-specific directory so x2t can find media files
   // x2t looks for media/ relative to input binary location
   const hashDir = filehash ? path.join(outputDir, filehash) : outputDir;
+  if (!fs.existsSync(hashDir)) {
+    fs.mkdirSync(hashDir, { recursive: true });
+  }
 
   // Ensure parent directory exists
   const parentDir = path.dirname(outputPath);
@@ -741,8 +744,9 @@ app.post('/api/save', (req, res) => {
     const { code: formatTo, name: formatName } = formatInfo;
     console.log(`[SAVE] Converting received data to ${formatName}...`);
 
-    const changesBinPath = path.join(hashDir, 'temp_changes.bin');
-    const paramsPath = path.join(hashDir, 'params_save.xml');
+    const saveRequestId = crypto.randomUUID();
+    const changesBinPath = path.join(hashDir, `temp_changes_${saveRequestId}.bin`);
+    const paramsPath = path.join(hashDir, `params_save_${saveRequestId}.xml`);
 
     // Save the received binary data
     fs.writeFileSync(changesBinPath, req.body);
