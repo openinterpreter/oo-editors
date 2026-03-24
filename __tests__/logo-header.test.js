@@ -44,7 +44,7 @@ function assertFilesExist(files) {
 }
 
 function getDocType(ext) {
-  if (['xlsx', 'xls', 'ods', 'csv'].includes(ext)) return 'cell';
+  if (['xlsx', 'xls', 'xlsm', 'ods', 'csv'].includes(ext)) return 'cell';
   if (['docx', 'doc', 'odt', 'txt', 'rtf', 'html'].includes(ext)) return 'word';
   if (['pptx', 'ppt', 'odp'].includes(ext)) return 'slide';
   return 'slide';
