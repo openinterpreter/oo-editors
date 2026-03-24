@@ -57,7 +57,7 @@ function generateFileHash(filepath) {
  */
 function getDocTypeFromFilename(filename) {
   const ext = filename.split('.').pop().toLowerCase();
-  if (ext === 'xlsx' || ext === 'xls' || ext === 'ods' || ext === 'csv') {
+  if (ext === 'xlsx' || ext === 'xls' || ext === 'xlsm' || ext === 'ods' || ext === 'csv') {
     return 'cell';
   } else if (ext === 'docx' || ext === 'doc' || ext === 'odt' || ext === 'txt' || ext === 'rtf' || ext === 'html') {
     return 'word';
