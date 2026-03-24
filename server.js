@@ -124,7 +124,12 @@ app.get('/fonts-info.js', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(allFontsPath, (err) => {
     if (err) {
-      console.error('[API] Error serving AllFonts.js:', err);
+      const isNotFound = err.code === 'ENOENT' || err.statusCode === 404 || err.status === 404;
+      if (isNotFound) {
+        console.warn(`[API] AllFonts.js missing for /fonts-info.js (code=${err.code}, status=${err.statusCode || err.status}, path=${err.path || allFontsPath})`);
+      } else {
+        console.error('[API] Failed serving AllFonts.js for /fonts-info.js:', err);
+      }
       if (!res.headersSent) {
         res.status(err.statusCode || 500).send('// Failed to load font metadata');
       }
@@ -140,7 +145,12 @@ app.get('/sdkjs/common/AllFonts.js', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(desktopAllFontsPath, (err) => {
     if (err) {
-      console.error('[API] Error overriding /sdkjs/common/AllFonts.js:', err);
+      const isNotFound = err.code === 'ENOENT' || err.statusCode === 404 || err.status === 404;
+      if (isNotFound) {
+        console.warn(`[API] AllFonts.js missing for /sdkjs/common/AllFonts.js (code=${err.code}, status=${err.statusCode || err.status}, path=${err.path || desktopAllFontsPath})`);
+      } else {
+        console.error('[API] Failed overriding /sdkjs/common/AllFonts.js:', err);
+      }
       if (!res.headersSent) {
         res.status(err.statusCode || 500).send('// Failed to load AllFonts override');
       }
