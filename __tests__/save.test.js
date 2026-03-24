@@ -66,4 +66,8 @@ describe('CSV save round-trip', () => {
   test('should save hard.csv', async () => {
     await convertAndSave('hard.csv');
   }, 60_000);
+
+  test('should save simple.xlsm', async () => {
+    await convertAndSave('simple.xlsm');
+  });
 });
