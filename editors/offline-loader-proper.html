@@ -155,10 +155,10 @@ See common.js and desktop-stub.js headers for related documentation.
                     if (iframe && iframe.contentWindow && iframe.contentDocument) {
                         var iframeDoc = iframe.contentDocument;
 
-                        // Find and click "Got it" buttons ONCE
+                        // Find and click "Got it" onboarding buttons ONCE
                         iframeDoc.querySelectorAll('button').forEach(function(btn) {
                             var text = (btn.textContent || btn.innerText || '').trim().toLowerCase();
-                            if ((text === 'got it' || text === 'ok') && !btn.dataset.dismissed) {
+                            if (text === 'got it' && !btn.dataset.dismissed) {
                                 console.log('[DISMISS] Clicking button:', text);
                                 btn.click();
                                 btn.dataset.dismissed = 'true';
