@@ -2,6 +2,11 @@ import { describe, test, expect } from 'bun:test';
 import {
   parseSpriteScale,
   detectLanguageCode,
+  extractThemeQueryValue,
+  findThemeChoice,
+  normalizeThemeChoice,
+  resolveUiThemeId,
+  buildThemeConfig,
   shouldUseEastAsiaVariant,
   getSpriteOptions,
   collectFontNames,
@@ -69,6 +74,96 @@ describe('detectLanguageCode', () => {
   test('returns empty for missing lang param', () => {
     expect(detectLanguageCode({ search: '?foo=bar' })).toBe('');
     expect(detectLanguageCode({ search: '' })).toBe('');
+  });
+});
+
+describe('extractThemeQueryValue', () => {
+  test('returns empty string for empty or invalid input', () => {
+    expect(extractThemeQueryValue(undefined)).toBe('');
+    expect(extractThemeQueryValue(null)).toBe('');
+    expect(extractThemeQueryValue('')).toBe('');
+  });
+
+  test('extracts theme from query string', () => {
+    expect(extractThemeQueryValue('?theme=dark')).toBe('dark');
+    expect(extractThemeQueryValue('?foo=bar&theme=theme-night')).toBe('theme-night');
+  });
+});
+
+describe('findThemeChoice', () => {
+  test('returns first matching theme from location chain', () => {
+    expect(findThemeChoice([
+      '',
+      '?foo=bar',
+      '?theme=dark',
+      '?theme=light'
+    ])).toBe('dark');
+  });
+
+  test('returns empty string when no theme exists', () => {
+    expect(findThemeChoice(['', '?foo=bar'])).toBe('');
+    expect(findThemeChoice(null)).toBe('');
+  });
+});
+
+describe('normalizeThemeChoice', () => {
+  test('defaults to light for empty or unknown values', () => {
+    expect(normalizeThemeChoice(undefined)).toBe('light');
+    expect(normalizeThemeChoice(null)).toBe('light');
+    expect(normalizeThemeChoice('')).toBe('light');
+    expect(normalizeThemeChoice('system')).toBe('light');
+    expect(normalizeThemeChoice('theme-system')).toBe('light');
+    expect(normalizeThemeChoice('unknown')).toBe('light');
+  });
+
+  test('accepts light aliases', () => {
+    expect(normalizeThemeChoice('light')).toBe('light');
+    expect(normalizeThemeChoice('theme-classic-light')).toBe('light');
+    expect(normalizeThemeChoice('theme-white')).toBe('light');
+  });
+
+  test('accepts dark aliases', () => {
+    expect(normalizeThemeChoice('dark')).toBe('dark');
+    expect(normalizeThemeChoice('theme-night')).toBe('dark');
+    expect(normalizeThemeChoice('theme-dark')).toBe('dark');
+  });
+});
+
+describe('resolveUiThemeId', () => {
+  test('returns explicit ONLYOFFICE theme ids', () => {
+    expect(resolveUiThemeId('dark')).toBe('theme-night');
+    expect(resolveUiThemeId('theme-night')).toBe('theme-night');
+    expect(resolveUiThemeId('light')).toBe('theme-classic-light');
+    expect(resolveUiThemeId('theme-system')).toBe('theme-classic-light');
+    expect(resolveUiThemeId(undefined)).toBe('theme-classic-light');
+  });
+});
+
+describe('buildThemeConfig', () => {
+  test('returns explicit light theme config by default', () => {
+    expect(buildThemeConfig(undefined)).toEqual({
+      id: 'theme-classic-light',
+      type: 'light',
+      system: 'light'
+    });
+    expect(buildThemeConfig('theme-system')).toEqual({
+      id: 'theme-classic-light',
+      type: 'light',
+      system: 'light'
+    });
+  });
+
+  test('returns explicit dark theme config for dark values', () => {
+    expect(buildThemeConfig('dark')).toEqual({
+      id: 'theme-night',
+      type: 'dark',
+      system: 'dark'
+    });
+    expect(buildThemeConfig('theme-night')).toEqual({
+      id: 'theme-night',
+      type: 'dark',
+      system: 'dark'
+    });
   });
 });
 

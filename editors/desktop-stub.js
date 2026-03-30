@@ -109,6 +109,43 @@
     var extractMediaFilename = utils.extractMediaFilename || function(p) { return p; };
     var buildMediaUrl = utils.buildMediaUrl || function(base, hash, name) { return hash ? base + '/api/media/' + hash + '/' + name : null; };
     var extractBlobUrl = utils.extractBlobUrl || function(p) { return null; };
+    var findThemeChoice = utils.findThemeChoice || function(searches) {
+        if (!Array.isArray(searches)) {
+            return '';
+        }
+
+        for (var i = 0; i < searches.length; i++) {
+            var searchValue = typeof searches[i] === 'string' ? searches[i] : '';
+            if (!searchValue) {
+                continue;
+            }
+
+            try {
+                var theme = new URLSearchParams(searchValue).get('theme');
+                if (theme) {
+                    return theme;
+                }
+            } catch (err) {}
+        }
+
+        return '';
+    };
+    var buildThemeConfig = utils.buildThemeConfig || function(theme) {
+        var normalized = typeof theme === 'string' ? theme.toLowerCase() : '';
+        if (normalized === 'dark' || normalized === 'theme-night' || normalized === 'theme-dark') {
+            return {
+                id: 'theme-night',
+                type: 'dark',
+                system: 'dark'
+            };
+        }
+
+        return {
+            id: 'theme-classic-light',
+            type: 'light',
+            system: 'light'
+        };
+    };
 
     function detectLanguageCode() {
         if (utils.detectLanguageCode) {
@@ -116,6 +153,34 @@
         }
         return '';
     }
+
+    function collectLocationSearches() {
+        var searches = [];
+        var currentWindow = window;
+        var visitedWindows = [];
+
+        while (currentWindow && visitedWindows.indexOf(currentWindow) === -1) {
+            visitedWindows.push(currentWindow);
+
+            try {
+                searches.push(currentWindow.location && currentWindow.location.search ? currentWindow.location.search : '');
+                if (!currentWindow.parent || currentWindow.parent === currentWindow) {
+                    break;
+                }
+                currentWindow = currentWindow.parent;
+            } catch (err) {
+                break;
+            }
+        }
+
+        return searches;
+    }
+
+    function detectThemeConfig() {
+        return buildThemeConfig(findThemeChoice(collectLocationSearches()));
+    }
+
+    var initialThemeConfig = detectThemeConfig();
 
     function shouldUseEastAsiaVariant() {
         var lang = detectLanguageCode();
@@ -264,11 +329,7 @@
         },
 
         // Theme support
-        theme: {
-            id: 'theme-classic-light',
-            type: 'light',
-            system: 'light'
-        },
+        theme: { ...initialThemeConfig },
 
         // Crypto plugin support (stub)
         CryptoMode: 0,
@@ -1657,11 +1718,7 @@
 
     // Create RendererProcessVariable stub for theme and RTL support
     window.RendererProcessVariable = {
-        theme: {
-            id: 'theme-classic-light',
-            type: 'light',
-            system: 'light'
-        },
+        theme: { ...initialThemeConfig },
         localthemes: {},
         rtl: false
     };

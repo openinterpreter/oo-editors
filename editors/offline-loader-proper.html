@@ -412,8 +412,22 @@ See common.js and desktop-stub.js headers for related documentation.
                 return docparams;
             }
 
+            function resolveUiTheme(urlParams) {
+                if (window.DesktopStubUtils && typeof window.DesktopStubUtils.resolveUiThemeId === 'function') {
+                    return window.DesktopStubUtils.resolveUiThemeId(urlParams['theme']);
+                }
+
+                var themeParam = typeof urlParams['theme'] === 'string'
+                    ? urlParams['theme'].toLowerCase()
+                    : '';
+                return (themeParam === 'dark' || themeParam === 'theme-night' || themeParam === 'theme-dark')
+                    ? 'theme-night'
+                    : 'theme-classic-light';
+            }
+
             function getEditorConfig(urlParams) {
                 var headerLogoUrl = window.location.origin + '/web-apps/apps/common/main/resources/img/header/header-logo_s.svg';
+                var uiTheme = resolveUiTheme(urlParams);
                 return {
                     customization   : {
                         goback: { url: "onlyoffice.com" },
@@ -426,7 +440,7 @@ See common.js and desktop-stub.js headers for related documentation.
                         hideRightMenu: false,
                         showReviewChanges: false,
                         toolbarNoTabs: false,
-                        uiTheme: 'theme-classic-light',  // Prevent theme switching dialogs
+                        uiTheme: uiTheme,
                         autosave: false,  // Disable autosave completely
                         logo: {
                             visible: true,

@@ -868,6 +868,7 @@ app.get('/open', (req, res) => {
   const filepath = req.query.filepath;
   // NOTE(victor): OnlyOffice expects ISO 639-1 codes (e.g. "es", "fr"), not full names like "spanish"
   const lang = typeof req.query.lang === 'string' ? req.query.lang : '';
+  const theme = typeof req.query.theme === 'string' ? req.query.theme : '';
 
   if (!filepath) {
     return res.status(400).json({ error: 'filepath query parameter is required' });
@@ -899,6 +900,9 @@ app.get('/open', (req, res) => {
   });
   if (lang) {
     redirectParams.set('lang', lang);
+  }
+  if (theme) {
+    redirectParams.set('theme', theme);
   }
 
   res.redirect(`/offline-loader-proper.html?${redirectParams.toString()}`);

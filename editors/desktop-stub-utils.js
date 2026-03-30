@@ -46,6 +46,95 @@ function detectLanguageCode(location) {
 }
 
 /**
+ * Extract theme query parameter from a search string.
+ * @param {string} search - URL search string
+ * @returns {string} Theme query value or empty string
+ */
+function extractThemeQueryValue(search) {
+  try {
+    var searchValue = typeof search === 'string' ? search : '';
+    if (!searchValue) {
+      return '';
+    }
+    return new URLSearchParams(searchValue).get('theme') || '';
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
+ * Find the first theme value from a list of search strings.
+ * @param {Array<string>} searches - Ordered search strings to inspect
+ * @returns {string} First non-empty theme query value or empty string
+ */
+function findThemeChoice(searches) {
+  if (!Array.isArray(searches)) {
+    return '';
+  }
+
+  for (var i = 0; i < searches.length; i++) {
+    var theme = extractThemeQueryValue(searches[i]);
+    if (theme) {
+      return theme;
+    }
+  }
+
+  return '';
+}
+
+/**
+ * Normalize incoming theme values to the two supported modes.
+ * Accepts either host-friendly names ("dark"/"light") or ONLYOFFICE theme ids.
+ * Any unknown value falls back to light.
+ * @param {string} theme - Theme query parameter or theme id
+ * @returns {"dark"|"light"} Normalized theme choice
+ */
+function normalizeThemeChoice(theme) {
+  var normalized = typeof theme === 'string' ? theme.toLowerCase() : '';
+  if (
+    normalized === 'dark' ||
+    normalized === 'theme-night' ||
+    normalized === 'theme-dark'
+  ) {
+    return 'dark';
+  }
+  return 'light';
+}
+
+/**
+ * Resolve the ONLYOFFICE uiTheme id for an incoming theme value.
+ * @param {string} theme - Theme query parameter or theme id
+ * @returns {string} ONLYOFFICE theme id
+ */
+function resolveUiThemeId(theme) {
+  return normalizeThemeChoice(theme) === 'dark'
+    ? 'theme-night'
+    : 'theme-classic-light';
+}
+
+/**
+ * Build the desktop stub theme object expected by the web apps.
+ * @param {string} theme - Theme query parameter or theme id
+ * @returns {{id: string, type: string, system: string}} Theme config
+ */
+function buildThemeConfig(theme) {
+  var normalized = normalizeThemeChoice(theme);
+  if (normalized === 'dark') {
+    return {
+      id: 'theme-night',
+      type: 'dark',
+      system: 'dark'
+    };
+  }
+
+  return {
+    id: 'theme-classic-light',
+    type: 'light',
+    system: 'light'
+  };
+}
+
+/**
  * Check if East Asian font variant should be used
  * @param {string} lang - Language code
  * @returns {boolean} True if EA variant should be used
@@ -168,6 +257,11 @@ function extractBlobUrl(path) {
     FONT_SPRITE_ROW_HEIGHT: FONT_SPRITE_ROW_HEIGHT,
     parseSpriteScale: parseSpriteScale,
     detectLanguageCode: detectLanguageCode,
+    extractThemeQueryValue: extractThemeQueryValue,
+    findThemeChoice: findThemeChoice,
+    normalizeThemeChoice: normalizeThemeChoice,
+    resolveUiThemeId: resolveUiThemeId,
+    buildThemeConfig: buildThemeConfig,
     shouldUseEastAsiaVariant: shouldUseEastAsiaVariant,
     getSpriteOptions: getSpriteOptions,
     collectFontNames: collectFontNames,
