@@ -2,6 +2,8 @@ import { describe, test, expect } from 'bun:test';
 import {
   parseSpriteScale,
   detectLanguageCode,
+  extractThemeQueryValue,
+  findThemeChoice,
   normalizeThemeChoice,
   resolveUiThemeId,
   buildThemeConfig,
@@ -72,6 +74,35 @@ describe('detectLanguageCode', () => {
   test('returns empty for missing lang param', () => {
     expect(detectLanguageCode({ search: '?foo=bar' })).toBe('');
     expect(detectLanguageCode({ search: '' })).toBe('');
+  });
+});
+
+describe('extractThemeQueryValue', () => {
+  test('returns empty string for empty or invalid input', () => {
+    expect(extractThemeQueryValue(undefined)).toBe('');
+    expect(extractThemeQueryValue(null)).toBe('');
+    expect(extractThemeQueryValue('')).toBe('');
+  });
+
+  test('extracts theme from query string', () => {
+    expect(extractThemeQueryValue('?theme=dark')).toBe('dark');
+    expect(extractThemeQueryValue('?foo=bar&theme=theme-night')).toBe('theme-night');
+  });
+});
+
+describe('findThemeChoice', () => {
+  test('returns first matching theme from location chain', () => {
+    expect(findThemeChoice([
+      '',
+      '?foo=bar',
+      '?theme=dark',
+      '?theme=light'
+    ])).toBe('dark');
+  });
+
+  test('returns empty string when no theme exists', () => {
+    expect(findThemeChoice(['', '?foo=bar'])).toBe('');
+    expect(findThemeChoice(null)).toBe('');
   });
 });
 
