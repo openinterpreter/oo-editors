@@ -109,6 +109,22 @@
     var extractMediaFilename = utils.extractMediaFilename || function(p) { return p; };
     var buildMediaUrl = utils.buildMediaUrl || function(base, hash, name) { return hash ? base + '/api/media/' + hash + '/' + name : null; };
     var extractBlobUrl = utils.extractBlobUrl || function(p) { return null; };
+    var buildThemeConfig = utils.buildThemeConfig || function(theme) {
+        var normalized = typeof theme === 'string' ? theme.toLowerCase() : '';
+        if (normalized === 'dark' || normalized === 'theme-night' || normalized === 'theme-dark') {
+            return {
+                id: 'theme-night',
+                type: 'dark',
+                system: 'dark'
+            };
+        }
+
+        return {
+            id: 'theme-classic-light',
+            type: 'light',
+            system: 'light'
+        };
+    };
 
     function detectLanguageCode() {
         if (utils.detectLanguageCode) {
@@ -119,29 +135,7 @@
 
     function detectThemeConfig() {
         var params = new URLSearchParams(window.location.search || '');
-        var theme = (params.get('theme') || 'system').toLowerCase();
-
-        if (theme === 'dark') {
-            return {
-                id: 'theme-night',
-                type: 'dark',
-                system: 'dark'
-            };
-        }
-
-        if (theme === 'light') {
-            return {
-                id: 'theme-classic-light',
-                type: 'light',
-                system: 'light'
-            };
-        }
-
-        return {
-            id: 'theme-system',
-            type: 'light',
-            system: 'light'
-        };
+        return buildThemeConfig(params.get('theme'));
     }
 
     var initialThemeConfig = detectThemeConfig();

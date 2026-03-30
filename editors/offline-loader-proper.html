@@ -413,10 +413,16 @@ See common.js and desktop-stub.js headers for related documentation.
             }
 
             function resolveUiTheme(urlParams) {
-                var themeParam = (urlParams['theme'] || 'system').toLowerCase();
-                if (themeParam === 'dark') return 'theme-night';
-                if (themeParam === 'light') return 'theme-classic-light';
-                return 'theme-system';
+                if (window.DesktopStubUtils && typeof window.DesktopStubUtils.resolveUiThemeId === 'function') {
+                    return window.DesktopStubUtils.resolveUiThemeId(urlParams['theme']);
+                }
+
+                var themeParam = typeof urlParams['theme'] === 'string'
+                    ? urlParams['theme'].toLowerCase()
+                    : '';
+                return (themeParam === 'dark' || themeParam === 'theme-night' || themeParam === 'theme-dark')
+                    ? 'theme-night'
+                    : 'theme-classic-light';
             }
 
             function getEditorConfig(urlParams) {

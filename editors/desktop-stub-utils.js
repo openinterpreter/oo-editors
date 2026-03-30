@@ -46,6 +46,58 @@ function detectLanguageCode(location) {
 }
 
 /**
+ * Normalize incoming theme values to the two supported modes.
+ * Accepts either host-friendly names ("dark"/"light") or ONLYOFFICE theme ids.
+ * Any unknown value falls back to light.
+ * @param {string} theme - Theme query parameter or theme id
+ * @returns {"dark"|"light"} Normalized theme choice
+ */
+function normalizeThemeChoice(theme) {
+  var normalized = typeof theme === 'string' ? theme.toLowerCase() : '';
+  if (
+    normalized === 'dark' ||
+    normalized === 'theme-night' ||
+    normalized === 'theme-dark'
+  ) {
+    return 'dark';
+  }
+  return 'light';
+}
+
+/**
+ * Resolve the ONLYOFFICE uiTheme id for an incoming theme value.
+ * @param {string} theme - Theme query parameter or theme id
+ * @returns {string} ONLYOFFICE theme id
+ */
+function resolveUiThemeId(theme) {
+  return normalizeThemeChoice(theme) === 'dark'
+    ? 'theme-night'
+    : 'theme-classic-light';
+}
+
+/**
+ * Build the desktop stub theme object expected by the web apps.
+ * @param {string} theme - Theme query parameter or theme id
+ * @returns {{id: string, type: string, system: string}} Theme config
+ */
+function buildThemeConfig(theme) {
+  var normalized = normalizeThemeChoice(theme);
+  if (normalized === 'dark') {
+    return {
+      id: 'theme-night',
+      type: 'dark',
+      system: 'dark'
+    };
+  }
+
+  return {
+    id: 'theme-classic-light',
+    type: 'light',
+    system: 'light'
+  };
+}
+
+/**
  * Check if East Asian font variant should be used
  * @param {string} lang - Language code
  * @returns {boolean} True if EA variant should be used
@@ -168,6 +220,9 @@ function extractBlobUrl(path) {
     FONT_SPRITE_ROW_HEIGHT: FONT_SPRITE_ROW_HEIGHT,
     parseSpriteScale: parseSpriteScale,
     detectLanguageCode: detectLanguageCode,
+    normalizeThemeChoice: normalizeThemeChoice,
+    resolveUiThemeId: resolveUiThemeId,
+    buildThemeConfig: buildThemeConfig,
     shouldUseEastAsiaVariant: shouldUseEastAsiaVariant,
     getSpriteOptions: getSpriteOptions,
     collectFontNames: collectFontNames,
