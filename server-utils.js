@@ -284,6 +284,28 @@ function describeChildExit(code, signal) {
 }
 
 /**
+ * Decide how a completed child process stderr buffer should be logged.
+ * We wait until exit so successful tools that write noisy diagnostics to stderr
+ * do not get treated like failures, while failed exits still preserve the full
+ * stderr buffer in one log entry for debugging/Sentry.
+ * @param {{code: number|null, signal: NodeJS.Signals|string|null, stderr: string}} result
+ * @returns {{level: 'info' | 'error', output: string} | null}
+ */
+function getBufferedStderrLog(result) {
+  const output = result?.stderr?.trim();
+
+  if (!output) {
+    return null;
+  }
+
+  if (result.code === 0 && !result.signal) {
+    return { level: 'info', output };
+  }
+
+  return { level: 'error', output };
+}
+
+/**
  * Run a spawned child process and capture its output without leaving unhandled
  * error events behind.
  * @param {(command: string, args: string[]) => import('child_process').ChildProcess} spawnFn
@@ -361,5 +383,6 @@ module.exports = {
   classifySendFileError,
   resolveX2TPath,
   describeChildExit,
+  getBufferedStderrLog,
   runChildProcess
 };

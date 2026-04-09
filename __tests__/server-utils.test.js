@@ -15,6 +15,7 @@ import {
   classifySendFileError,
   resolveX2TPath,
   describeChildExit,
+  getBufferedStderrLog,
   runChildProcess
 } from '../server-utils.js';
 
@@ -402,6 +403,30 @@ describe('describeChildExit', () => {
 
   test('handles missing exit details', () => {
     expect(describeChildExit(undefined, undefined)).toBe('unknown exit status');
+  });
+});
+
+describe('getBufferedStderrLog', () => {
+  test('returns the full stderr buffer as an error for non-zero exits', () => {
+    expect(getBufferedStderrLog({
+      code: 1,
+      signal: null,
+      stderr: 'first line\nsecond line\n'
+    })).toEqual({
+      level: 'error',
+      output: 'first line\nsecond line'
+    });
+  });
+
+  test('returns info for successful exits with stderr output', () => {
+    expect(getBufferedStderrLog({
+      code: 0,
+      signal: null,
+      stderr: 'warning\n'
+    })).toEqual({
+      level: 'info',
+      output: 'warning'
+    });
   });
 });
 

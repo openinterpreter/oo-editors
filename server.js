@@ -16,6 +16,7 @@ const {
   classifySendFileError,
   resolveX2TPath,
   describeChildExit,
+  getBufferedStderrLog,
   runChildProcess
 } = require('./server-utils');
 
@@ -34,7 +35,7 @@ function logInfo(scope, message, ...args) {
 }
 
 function logWarn(scope, message, ...args) {
-  console.warn(`${formatLogScope(scope)} ${message}`, ...args);
+  console.log(`${formatLogScope(scope)} ${message}`, ...args);
 }
 
 function logError(scope, message, ...args) {
@@ -110,6 +111,7 @@ function sendFileWithHttpErrors(res, filePath, options) {
   const {
     logScope,
     notFoundBody,
+    notFoundLogLevel = 'warn',
     internalErrorBody,
     successMessage
   } = options;
@@ -131,7 +133,7 @@ function sendFileWithHttpErrors(res, filePath, options) {
       return;
     }
 
-    if (failure.logLevel === 'warn') {
+    if (failure.logLevel === 'warn' && notFoundLogLevel !== 'error') {
       logWarn(logScope, `sendFile returned 404: ${filePath}`);
     } else {
       logError(logScope, `Error serving ${filePath}:`, err);
@@ -176,15 +178,20 @@ function runX2T(paramsPath, options) {
       if (trimmed) {
         logInfo([].concat(normalizeLogScope(logScope), ['x2t', 'stdout']), trimmed);
       }
-    },
-    onStderr: (output) => {
-      const trimmed = output.trim();
-      if (trimmed) {
-        logError([].concat(normalizeLogScope(logScope), ['x2t', 'stderr']), trimmed);
-      }
     }
   }).then((result) => {
     const exitDescription = describeChildExit(result.code, result.signal);
+    const stderrLog = getBufferedStderrLog(result);
+
+    if (stderrLog) {
+      const stderrScope = [].concat(normalizeLogScope(logScope), ['x2t', 'stderr']);
+      if (stderrLog.level === 'info') {
+        logInfo(stderrScope, stderrLog.output);
+      } else {
+        logError(stderrScope, stderrLog.output);
+      }
+    }
+
     logInfo(logScope, `x2t exited with ${exitDescription}`);
     return {
       ...result,
@@ -205,7 +212,7 @@ function shutdownServer(reason, exitCode) {
   }
 
   shutdownStarted = true;
-  logWarn('PROCESS', `shutdown requested (${reason}), exitCode=${exitCode}, version=${OO_EDITORS_VERSION}`);
+  logInfo('PROCESS', `shutdown requested (${reason}), exitCode=${exitCode}, version=${OO_EDITORS_VERSION}`);
 
   const finalize = (finalCode) => {
     logInfo('PROCESS', `exiting with code ${finalCode}`);
@@ -333,6 +340,7 @@ app.get('/document_editor_service_worker.js', (req, res) => {
   sendFileWithHttpErrors(res, workerPath, {
     logScope: 'SW',
     notFoundBody: 'Service worker not found',
+    notFoundLogLevel: 'error',
     internalErrorBody: 'Service worker error'
   });
 });
@@ -346,6 +354,7 @@ app.get('/fonts-info.js', (req, res) => {
   sendFileWithHttpErrors(res, allFontsPath, {
     logScope: 'API',
     notFoundBody: '// Failed to load font metadata',
+    notFoundLogLevel: 'error',
     internalErrorBody: '// Failed to load font metadata'
   });
 });
@@ -359,6 +368,7 @@ app.get('/sdkjs/common/AllFonts.js', (req, res) => {
   sendFileWithHttpErrors(res, desktopAllFontsPath, {
     logScope: 'API',
     notFoundBody: '// Failed to load AllFonts override',
+    notFoundLogLevel: 'error',
     internalErrorBody: '// Failed to load AllFonts override'
   });
 });
@@ -438,6 +448,7 @@ app.get('/api/media/:filehash/:imagefile', (req, res) => {
   sendFileWithHttpErrors(res, imagePath, {
     logScope: 'MEDIA',
     notFoundBody: 'Image not found',
+    notFoundLogLevel: 'error',
     internalErrorBody: 'Image error'
   });
 });
@@ -525,7 +536,7 @@ app.get('/api/convert', async (req, res) => {
     logInfo('CONVERT', `output directory: ${outputDir}`);
 
     if (!fs.existsSync(inputPath)) {
-      logError('CONVERT', `file not found: ${inputPath}`);
+      logWarn('CONVERT', `file not found: ${inputPath}`);
       return res.status(404).json({ error: 'File not found at absolute path' });
     }
 
@@ -731,7 +742,7 @@ app.post('/converter', async (req, res) => {
     logInfo('CONVERTER', `format: ${filetype} -> ${outputtype}`);
 
     if (!fs.existsSync(inputPath)) {
-      logError('CONVERTER', 'input file not found:', inputPath);
+      logWarn('CONVERTER', 'input file not found:', inputPath);
       return res.status(404).json({
         error: -1,
         message: 'Input file not found: ' + inputPath
@@ -868,6 +879,7 @@ app.get('/converted/:filename', (req, res) => {
   sendFileWithHttpErrors(res, filePath, {
     logScope: 'CONVERTED',
     notFoundBody: 'File not found',
+    notFoundLogLevel: 'error',
     internalErrorBody: 'File error'
   });
 });
@@ -947,7 +959,7 @@ app.post('/api/save', async (req, res) => {
       const formatInfo = getOutputFormatInfo(ext);
 
       if (!formatInfo) {
-        logError('SAVE', `unsupported file extension: ${ext}`);
+        logWarn('SAVE', `unsupported file extension: ${ext}`);
         return res.status(400).send('Unsupported file format');
       }
 
@@ -1115,7 +1127,7 @@ app.get('/raw/:filename', (req, res) => {
 
   // Check if file exists
   if (!fs.existsSync(filePath)) {
-    logError('RAW', `file not found: ${filePath}`);
+    logWarn('RAW', `file not found: ${filePath}`);
     return res.status(404).send('File not found');
   }
 
@@ -1230,7 +1242,7 @@ app.get('/file/:filename', (req, res) => {
 
   // Check if file exists
   if (!fs.existsSync(filePath)) {
-    logError('FILE', `file not found: ${filePath}`);
+    logWarn('FILE', `file not found: ${filePath}`);
     return res.status(404).send('File not found');
   }
 
@@ -1311,6 +1323,7 @@ app.get('/desktop-stub-utils.js', (req, res) => {
   sendFileWithHttpErrors(res, utilsPath, {
     logScope: 'DESKTOP-STUB-UTILS',
     notFoundBody: 'Asset not found',
+    notFoundLogLevel: 'error',
     internalErrorBody: 'Asset error'
   });
 });
@@ -1322,6 +1335,7 @@ app.get('/desktop-stub.js', (req, res) => {
   sendFileWithHttpErrors(res, stubPath, {
     logScope: 'DESKTOP-STUB',
     notFoundBody: 'Asset not found',
+    notFoundLogLevel: 'error',
     internalErrorBody: 'Asset error'
   });
 });
@@ -1396,6 +1410,7 @@ app.get('*/*.wasm', (req, res, next) => {
     sendFileWithHttpErrors(res, wasmPath, {
       logScope: 'WASM',
       notFoundBody: 'WASM not found',
+      notFoundLogLevel: 'error',
       internalErrorBody: 'WASM error'
     });
   } else {
