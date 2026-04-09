@@ -19,8 +19,30 @@ const {
   runChildProcess
 } = require('./server-utils');
 
+const LOG_NAMESPACE = 'oo-editors';
+
+function normalizeLogScope(scope) {
+  return Array.isArray(scope) ? scope : [scope];
+}
+
+function formatLogScope(scope) {
+  return `[${LOG_NAMESPACE}:${normalizeLogScope(scope).join(':')}]`;
+}
+
+function logInfo(scope, message, ...args) {
+  console.log(`${formatLogScope(scope)} ${message}`, ...args);
+}
+
+function logWarn(scope, message, ...args) {
+  console.warn(`${formatLogScope(scope)} ${message}`, ...args);
+}
+
+function logError(scope, message, ...args) {
+  console.error(`${formatLogScope(scope)} ${message}`, ...args);
+}
+
 if (!process.env.FONT_DATA_DIR) {
-  console.error('ERROR: FONT_DATA_DIR environment variable is required');
+  logError('STARTUP', 'FONT_DATA_DIR environment variable is required');
   process.exit(1);
 }
 
@@ -33,29 +55,29 @@ const { path: X2T_PATH, candidates: X2T_PATH_CANDIDATES } = resolveX2TPath(__dir
 });
 
 if (!fs.existsSync(FONT_DATA_DIR)) {
-  console.error(`ERROR: FONT_DATA_DIR does not exist: ${FONT_DATA_DIR}`);
+  logError('STARTUP', `FONT_DATA_DIR does not exist: ${FONT_DATA_DIR}`);
   process.exit(1);
 }
 
 if (!fs.existsSync(path.join(FONT_DATA_DIR, 'AllFonts.js'))) {
-  console.error(`ERROR: AllFonts.js not found under FONT_DATA_DIR: ${FONT_DATA_DIR}`);
+  logError('STARTUP', `AllFonts.js not found under FONT_DATA_DIR: ${FONT_DATA_DIR}`);
   process.exit(1);
 }
 
 if (!fs.existsSync(THEME_DIR)) {
-  console.error(`ERROR: theme directory not found: ${THEME_DIR}`);
+  logError('STARTUP', `theme directory not found: ${THEME_DIR}`);
   process.exit(1);
 }
 
 if (!fs.existsSync(X2T_PATH)) {
-  console.error(`ERROR: x2t binary not found. Checked: ${X2T_PATH_CANDIDATES.join(', ')}`);
+  logError('STARTUP', `x2t binary not found. Checked: ${X2T_PATH_CANDIDATES.join(', ')}`);
   process.exit(1);
 }
 
-console.log(`[STARTUP] oo-editors version=${OO_EDITORS_VERSION}`);
-console.log(`[STARTUP] Using FONT_DATA_DIR=${FONT_DATA_DIR}`);
-console.log(`[STARTUP] Using THEME_DIR=${THEME_DIR}`);
-console.log(`[STARTUP] Using x2t binary: ${X2T_PATH}`);
+logInfo('STARTUP', `version=${OO_EDITORS_VERSION}`);
+logInfo('STARTUP', `FONT_DATA_DIR=${FONT_DATA_DIR}`);
+logInfo('STARTUP', `THEME_DIR=${THEME_DIR}`);
+logInfo('STARTUP', `x2t=${X2T_PATH}`);
 
 const app = express();
 let server = null;
@@ -80,13 +102,13 @@ app.use(express.json());
 
 // Log all requests
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  logInfo('HTTP', `${new Date().toISOString()} ${req.method} ${req.url}`);
   next();
 });
 
 function sendFileWithHttpErrors(res, filePath, options) {
   const {
-    logPrefix,
+    logScope,
     notFoundBody,
     internalErrorBody,
     successMessage
@@ -95,7 +117,7 @@ function sendFileWithHttpErrors(res, filePath, options) {
   res.sendFile(filePath, (err) => {
     if (!err) {
       if (successMessage) {
-        console.log(successMessage);
+        logInfo(logScope, successMessage);
       }
       return;
     }
@@ -110,9 +132,9 @@ function sendFileWithHttpErrors(res, filePath, options) {
     }
 
     if (failure.logLevel === 'warn') {
-      console.warn(`${logPrefix} sendFile returned 404: ${filePath}`);
+      logWarn(logScope, `sendFile returned 404: ${filePath}`);
     } else {
-      console.error(`${logPrefix} Error serving ${filePath}:`, err);
+      logError(logScope, `Error serving ${filePath}:`, err);
     }
 
     if (!res.headersSent) {
@@ -121,7 +143,7 @@ function sendFileWithHttpErrors(res, filePath, options) {
   });
 }
 
-function cleanupFiles(filePaths, logPrefix) {
+function cleanupFiles(filePaths, logScope) {
   for (const filePath of filePaths) {
     if (!filePath) {
       continue;
@@ -132,38 +154,38 @@ function cleanupFiles(filePaths, logPrefix) {
         fs.unlinkSync(filePath);
       }
     } catch (err) {
-      console.warn(`${logPrefix} Failed to delete ${filePath}:`, err.message);
+      logWarn(logScope, `Failed to delete ${filePath}: ${err.message}`);
     }
   }
 }
 
 function runX2T(paramsPath, options) {
-  const { logPrefix } = options;
+  const { logScope } = options;
 
-  console.log(`${logPrefix} Starting x2t: ${X2T_PATH} ${paramsPath}`);
+  logInfo(logScope, `Starting x2t: ${X2T_PATH} ${paramsPath}`);
 
   return runChildProcess((command, args) => {
     const x2t = spawn(command, args);
     x2t.on('spawn', () => {
-      console.log(`${logPrefix} x2t pid ${x2t.pid}`);
+      logInfo(logScope, `x2t pid=${x2t.pid}`);
     });
     return x2t;
   }, X2T_PATH, [paramsPath], {
     onStdout: (output) => {
       const trimmed = output.trim();
       if (trimmed) {
-        console.log(`${logPrefix} [x2t stdout] ${trimmed}`);
+        logInfo([].concat(normalizeLogScope(logScope), ['x2t', 'stdout']), trimmed);
       }
     },
     onStderr: (output) => {
       const trimmed = output.trim();
       if (trimmed) {
-        console.error(`${logPrefix} [x2t stderr] ${trimmed}`);
+        logError([].concat(normalizeLogScope(logScope), ['x2t', 'stderr']), trimmed);
       }
     }
   }).then((result) => {
     const exitDescription = describeChildExit(result.code, result.signal);
-    console.log(`${logPrefix} x2t exited with ${exitDescription}`);
+    logInfo(logScope, `x2t exited with ${exitDescription}`);
     return {
       ...result,
       exitDescription
@@ -172,7 +194,7 @@ function runX2T(paramsPath, options) {
     const error = failure.error;
     error.stdout = failure.stdout;
     error.stderr = failure.stderr;
-    console.error(`${logPrefix} Failed to start x2t at ${X2T_PATH}:`, error);
+    logError(logScope, `Failed to start x2t at ${X2T_PATH}:`, error);
     throw error;
   });
 }
@@ -183,15 +205,15 @@ function shutdownServer(reason, exitCode) {
   }
 
   shutdownStarted = true;
-  console.warn(`[PROCESS] Shutdown requested (${reason}), exitCode=${exitCode}, version=${OO_EDITORS_VERSION}`);
+  logWarn('PROCESS', `shutdown requested (${reason}), exitCode=${exitCode}, version=${OO_EDITORS_VERSION}`);
 
   const finalize = (finalCode) => {
-    console.log(`[PROCESS] Exiting with code ${finalCode}`);
+    logInfo('PROCESS', `exiting with code ${finalCode}`);
     process.exit(finalCode);
   };
 
   const forceExitTimer = setTimeout(() => {
-    console.error('[PROCESS] Shutdown timed out, forcing exit');
+    logError('PROCESS', 'shutdown timed out, forcing exit');
     finalize(exitCode);
   }, 5000);
   forceExitTimer.unref();
@@ -202,16 +224,22 @@ function shutdownServer(reason, exitCode) {
     return;
   }
 
+  if (!server.listening) {
+    clearTimeout(forceExitTimer);
+    finalize(exitCode);
+    return;
+  }
+
   server.close((err) => {
     clearTimeout(forceExitTimer);
 
     if (err) {
-      console.error('[PROCESS] Error while closing HTTP server:', err);
+      logError('PROCESS', 'error while closing HTTP server:', err);
       finalize(1);
       return;
     }
 
-    console.log('[PROCESS] HTTP server closed');
+    logInfo('PROCESS', 'HTTP server closed');
     finalize(exitCode);
   });
 }
@@ -220,17 +248,17 @@ process.on('SIGTERM', () => shutdownServer('SIGTERM', 0));
 process.on('SIGINT', () => shutdownServer('SIGINT', 0));
 process.on('disconnect', () => shutdownServer('disconnect', 0));
 process.on('beforeExit', (code) => {
-  console.log(`[PROCESS] beforeExit with code ${code}`);
+  logInfo('PROCESS', `beforeExit with code ${code}`);
 });
 process.on('exit', (code) => {
-  console.log(`[PROCESS] exit with code ${code}`);
+  logInfo('PROCESS', `exit with code ${code}`);
 });
 process.on('uncaughtException', (err) => {
-  console.error('[PROCESS] Uncaught exception:', err);
+  logError('PROCESS', 'uncaught exception:', err);
   shutdownServer('uncaughtException', 1);
 });
 process.on('unhandledRejection', (reason) => {
-  console.error('[PROCESS] Unhandled rejection:', reason);
+  logError('PROCESS', 'unhandled rejection:', reason);
   shutdownServer('unhandledRejection', 1);
 });
 
@@ -251,10 +279,10 @@ app.get('/fonts/*', (req, res) => {
 
   // Normalize: requests often arrive with a leading slash (absolute macOS path).
   const fontPath = isAbsolutePath(decoded) ? decoded : path.join(__dirname, decoded);
-  console.log(`[FONTS] Request for absolute font path: ${fontPath}`);
+  logInfo('FONTS', `request for absolute font path: ${fontPath}`);
 
   if (!fs.existsSync(fontPath)) {
-    console.error(`[FONTS] Absolute font path not found: ${fontPath}`);
+    logError('FONTS', `absolute font path not found: ${fontPath}`);
     return res.status(404).send('Font not found');
   }
 
@@ -272,13 +300,13 @@ app.get('/fonts/*', (req, res) => {
     res.setHeader('Content-Type', fontContentType);
     res.setHeader('Access-Control-Allow-Origin', '*');
     sendFileWithHttpErrors(res, fontPath, {
-      logPrefix: '[FONTS]',
+      logScope: 'FONTS',
       notFoundBody: 'Font not found',
       internalErrorBody: 'Font error',
-      successMessage: `[FONTS] Served font: ${fontPath}`
+      successMessage: `served font: ${fontPath}`
     });
   } catch (err) {
-    console.error(`[FONTS] Error serving absolute font ${fontPath}:`, err);
+    logError('FONTS', `error serving absolute font ${fontPath}:`, err);
     res.status(500).send('Font error');
   }
 });
@@ -295,15 +323,15 @@ app.get('/document_editor_service_worker.js', (req, res) => {
   );
 
   if (!fs.existsSync(workerPath)) {
-    console.error('[SW] document_editor_service_worker.js not found at', workerPath);
+    logError('SW', 'document_editor_service_worker.js not found at', workerPath);
     return res.status(404).send('Service worker not found');
   }
 
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'no-cache');
-  console.log('[SW] Serving document_editor_service_worker.js');
+  logInfo('SW', 'serving document_editor_service_worker.js');
   sendFileWithHttpErrors(res, workerPath, {
-    logPrefix: '[SW]',
+    logScope: 'SW',
     notFoundBody: 'Service worker not found',
     internalErrorBody: 'Service worker error'
   });
@@ -312,11 +340,11 @@ app.get('/document_editor_service_worker.js', (req, res) => {
 // Serve the desktop AllFonts.js verbatim for metadata parity
 app.get('/fonts-info.js', (req, res) => {
   const allFontsPath = path.join(FONT_DATA_DIR, 'AllFonts.js');
-  console.log('[API] GET /fonts-info.js - serving', allFontsPath);
+  logInfo('API', 'GET /fonts-info.js serving', allFontsPath);
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'no-cache');
   sendFileWithHttpErrors(res, allFontsPath, {
-    logPrefix: '[API] Error serving AllFonts.js:',
+    logScope: 'API',
     notFoundBody: '// Failed to load font metadata',
     internalErrorBody: '// Failed to load font metadata'
   });
@@ -325,11 +353,11 @@ app.get('/fonts-info.js', (req, res) => {
 // Override the SDK's bundled AllFonts.js (Linux-oriented) with the desktop macOS version
 app.get('/sdkjs/common/AllFonts.js', (req, res) => {
   const desktopAllFontsPath = path.join(FONT_DATA_DIR, 'AllFonts.js');
-  console.log('[API] GET /sdkjs/common/AllFonts.js - overriding with desktop AllFonts.js');
+  logInfo('API', 'GET /sdkjs/common/AllFonts.js overriding with desktop AllFonts.js');
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'no-cache');
   sendFileWithHttpErrors(res, desktopAllFontsPath, {
-    logPrefix: '[API] Error overriding /sdkjs/common/AllFonts.js:',
+    logScope: 'API',
     notFoundBody: '// Failed to load AllFonts override',
     internalErrorBody: '// Failed to load AllFonts override'
   });
@@ -340,7 +368,7 @@ app.post('/api/media/:filehash', (req, res) => {
   const filehash = req.params.filehash;
   const filename = req.query.filename || `image_${Date.now()}.png`;
 
-  console.log(`[MEDIA-UPLOAD] Uploading ${filename} for hash ${filehash}`);
+  logInfo('MEDIA-UPLOAD', `uploading ${filename} for hash ${filehash}`);
 
   const outputDir = path.join(__dirname, 'test', 'output', filehash);
   const mediaDir = path.join(outputDir, 'media');
@@ -355,7 +383,7 @@ app.post('/api/media/:filehash', (req, res) => {
   const imagePath = path.join(mediaDir, filename);
   fs.writeFileSync(imagePath, req.body);
 
-  console.log(`[MEDIA-UPLOAD] Saved ${req.body.length} bytes to ${imagePath}`);
+  logInfo('MEDIA-UPLOAD', `saved ${req.body.length} bytes to ${imagePath}`);
   res.json({ filename: filename, path: `/api/media/${filehash}/${filename}` });
 });
 
@@ -364,23 +392,23 @@ app.post('/api/media/:filehash', (req, res) => {
 app.get('/api/media/:filehash/:imagefile', (req, res) => {
   const filehash = req.params.filehash;
   const imagefile = req.params.imagefile;
-  console.log(`[MEDIA] Request for image: ${imagefile} (file hash: ${filehash})`);
+  logInfo('MEDIA', `request for image ${imagefile} (file hash: ${filehash})`);
 
   // Images are in hash-specific output directory
   const outputDir = path.join(__dirname, 'test', 'output', filehash);
   const mediaDir = path.join(outputDir, 'media');
   const imagePath = path.join(mediaDir, imagefile);
 
-  console.log(`[MEDIA] Looking for image at: ${imagePath}`);
+  logInfo('MEDIA', `looking for image at: ${imagePath}`);
 
   if (!fs.existsSync(imagePath)) {
-    console.error(`[MEDIA] Image not found: ${imagePath}`);
+    logError('MEDIA', `image not found: ${imagePath}`);
 
     // Check if media directory exists at all
     if (!fs.existsSync(mediaDir)) {
-      console.error(`[MEDIA] Media directory does not exist: ${mediaDir}`);
+      logError('MEDIA', `media directory does not exist: ${mediaDir}`);
     } else {
-      console.log(`[MEDIA] Media directory contents:`, fs.readdirSync(mediaDir));
+      logInfo('MEDIA', 'media directory contents:', fs.readdirSync(mediaDir));
     }
 
     return res.status(404).send('Image not found');
@@ -406,9 +434,9 @@ app.get('/api/media/:filehash/:imagefile', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
 
-  console.log(`[MEDIA] Serving image: ${imagePath} (${contentType})`);
+  logInfo('MEDIA', `serving image: ${imagePath} (${contentType})`);
   sendFileWithHttpErrors(res, imagePath, {
-    logPrefix: '[MEDIA]',
+    logScope: 'MEDIA',
     notFoundBody: 'Image not found',
     internalErrorBody: 'Image error'
   });
@@ -418,7 +446,7 @@ app.get('/api/media/:filehash/:imagefile', (req, res) => {
 app.get('/api/doc-base/:filehash/*', (req, res) => {
   const filehash = req.params.filehash;
   const relativePath = req.params[0] || '';
-  console.log(`[DOC-BASE] Request for path "${relativePath}" (file hash: ${filehash})`);
+  logInfo('DOC-BASE', `request for path "${relativePath}" (file hash: ${filehash})`);
 
   if (!relativePath) {
     return res.status(400).send('Path is required');
@@ -431,17 +459,17 @@ app.get('/api/doc-base/:filehash/*', (req, res) => {
   const requestedPath = path.join(outputDir, normalizedPath);
 
   if (!requestedPath.startsWith(outputDir)) {
-    console.warn('[DOC-BASE] Attempted directory traversal:', requestedPath);
+    logWarn('DOC-BASE', 'attempted directory traversal:', requestedPath);
     return res.status(403).send('Forbidden');
   }
 
   if (!fs.existsSync(requestedPath) || !fs.statSync(requestedPath).isFile()) {
-    console.log('[DOC-BASE] File not found:', requestedPath);
+    logInfo('DOC-BASE', 'file not found:', requestedPath);
     return res.status(404).send('File not found');
   }
 
   sendFileWithHttpErrors(res, requestedPath, {
-    logPrefix: '[DOC-BASE]',
+    logScope: 'DOC-BASE',
     notFoundBody: 'File not found',
     internalErrorBody: 'File error'
   });
@@ -450,22 +478,22 @@ app.get('/api/doc-base/:filehash/*', (req, res) => {
 // API Endpoint: List images in media directory for a file
 app.get('/api/media-list/:filehash', (req, res) => {
   const filehash = req.params.filehash;
-  console.log(`[MEDIA-LIST] Request for file hash: ${filehash}`);
+  logInfo('MEDIA-LIST', `request for file hash: ${filehash}`);
 
   const outputDir = path.join(__dirname, 'test', 'output', filehash);
   const mediaDir = path.join(outputDir, 'media');
 
   if (!fs.existsSync(mediaDir)) {
-    console.log(`[MEDIA-LIST] No media directory found for hash: ${filehash}`);
+    logInfo('MEDIA-LIST', `no media directory found for hash: ${filehash}`);
     return res.json([]);
   }
 
   try {
     const files = fs.readdirSync(mediaDir);
-    console.log(`[MEDIA-LIST] Found ${files.length} files:`, files);
+    logInfo('MEDIA-LIST', `found ${files.length} files:`, files);
     res.json(files);
   } catch (err) {
-    console.error(`[MEDIA-LIST] Error reading media directory:`, err);
+    logError('MEDIA-LIST', 'error reading media directory:', err);
     res.status(500).json({ error: 'Error reading media directory' });
   }
 });
@@ -485,7 +513,7 @@ app.get('/api/convert', async (req, res) => {
       return res.status(400).json({ error: 'filepath must be an absolute path' });
     }
 
-    console.log(`[CONVERT] Requested file: ${filepath}`);
+    logInfo('CONVERT', `requested file: ${filepath}`);
     timings.validated = performance.now();
 
     // Create unique output directory based on the source file path
@@ -493,11 +521,11 @@ app.get('/api/convert', async (req, res) => {
     const outputDir = path.join(__dirname, 'test', 'output', fileHash);
     const inputPath = filepath;
 
-    console.log(`[CONVERT] File hash: ${fileHash}`);
-    console.log(`[CONVERT] Output directory: ${outputDir}`);
+    logInfo('CONVERT', `file hash: ${fileHash}`);
+    logInfo('CONVERT', `output directory: ${outputDir}`);
 
     if (!fs.existsSync(inputPath)) {
-      console.error(`[CONVERT] File not found: ${inputPath}`);
+      logError('CONVERT', `file not found: ${inputPath}`);
       return res.status(404).json({ error: 'File not found at absolute path' });
     }
 
@@ -511,7 +539,7 @@ app.get('/api/convert', async (req, res) => {
     if (fs.existsSync(outputPath)) {
       const cacheMtime = fs.statSync(outputPath).mtimeMs;
       if (cacheMtime > sourceMtime) {
-        console.log(`[CONVERT] Cache hit! Using cached Editor.bin (source: ${new Date(sourceMtime).toISOString()}, cache: ${new Date(cacheMtime).toISOString()})`);
+        logInfo('CONVERT', `cache hit using cached Editor.bin (source: ${new Date(sourceMtime).toISOString()}, cache: ${new Date(cacheMtime).toISOString()})`);
         timings.cacheHit = true;
         const binaryData = fs.readFileSync(outputPath);
 
@@ -521,7 +549,7 @@ app.get('/api/convert', async (req, res) => {
           cacheHit: true,
           validation: (timings.validated - timings.start).toFixed(1),
         };
-        console.log(`[CONVERT][TIMING] Cache hit breakdown (ms):`, JSON.stringify(breakdown));
+        logInfo(['CONVERT', 'TIMING'], 'cache hit breakdown (ms):', JSON.stringify(breakdown));
 
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader('Content-Disposition', `attachment; filename="Editor.bin"`);
@@ -530,12 +558,12 @@ app.get('/api/convert', async (req, res) => {
         res.setHeader('X-Cache', 'HIT');
         return res.send(binaryData);
       }
-      console.log(`[CONVERT] Cache stale, reconverting (source: ${new Date(sourceMtime).toISOString()}, cache: ${new Date(cacheMtime).toISOString()})`);
+      logInfo('CONVERT', `cache stale, reconverting (source: ${new Date(sourceMtime).toISOString()}, cache: ${new Date(cacheMtime).toISOString()})`);
     }
 
-    console.log(`[CONVERT] Converting ${filename} to binary format...`);
-    console.log(`[CONVERT] Input: ${inputPath}`);
-    console.log(`[CONVERT] Output: ${outputPath}`);
+    logInfo('CONVERT', `converting ${filename} to binary format`);
+    logInfo('CONVERT', `input: ${inputPath}`);
+    logInfo('CONVERT', `output: ${outputPath}`);
 
     timings.beforeMkdir = performance.now();
     if (!fs.existsSync(outputDir)) {
@@ -578,42 +606,42 @@ app.get('/api/convert', async (req, res) => {
     timings.beforeXmlWrite = performance.now();
     fs.writeFileSync(paramsPath, xmlConfig);
     timings.afterXmlWrite = performance.now();
-    console.log(`[CONVERT] XML config written to ${paramsPath}`);
+    logInfo('CONVERT', `XML config written to ${paramsPath}`);
 
     // Run x2t converter
     timings.beforeX2t = performance.now();
     let x2tResult;
     try {
-      x2tResult = await runX2T(paramsPath, { logPrefix: '[CONVERT]' });
+      x2tResult = await runX2T(paramsPath, { logScope: 'CONVERT' });
     } catch (error) {
       timings.afterX2t = performance.now();
-      cleanupFiles([paramsPath], '[CONVERT]');
+      cleanupFiles([paramsPath], 'CONVERT');
       const details = error.stderr || error.stdout || error.message;
-      console.error('[CONVERT] Conversion failed before x2t completed:', error);
+      logError('CONVERT', 'conversion failed before x2t completed:', error);
       return res.status(500).send(`Conversion failed: ${details}`);
     }
 
     timings.afterX2t = performance.now();
-    cleanupFiles([paramsPath], '[CONVERT]');
+    cleanupFiles([paramsPath], 'CONVERT');
 
     if (x2tResult.code !== 0) {
       const details = x2tResult.stderr || x2tResult.stdout || 'x2t exited without output';
-      console.error(`[CONVERT] Conversion failed (${x2tResult.exitDescription})`);
+      logError('CONVERT', `conversion failed (${x2tResult.exitDescription})`);
       return res.status(500).send(`Conversion failed (${x2tResult.exitDescription}): ${details}`);
     }
 
     // Check if output file was created
     if (!fs.existsSync(outputPath)) {
-      console.error('[CONVERT] Output file not created');
+      logError('CONVERT', 'output file not created');
       return res.status(500).send('Conversion failed: output file not created');
     }
 
     // Read and send the binary file
     timings.beforeReadOutput = performance.now();
-    console.log(`[CONVERT] Reading output file: ${outputPath}`);
+    logInfo('CONVERT', `reading output file: ${outputPath}`);
     const binaryData = fs.readFileSync(outputPath);
     timings.afterReadOutput = performance.now();
-    console.log(`[CONVERT] Sending ${binaryData.length} bytes`);
+    logInfo('CONVERT', `sending ${binaryData.length} bytes`);
 
     // Send the file hash in a custom header so the browser can use it for image URLs
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -630,13 +658,13 @@ app.get('/api/convert', async (req, res) => {
       x2tConversion: (timings.afterX2t - timings.beforeX2t).toFixed(1),
       readOutput: (timings.afterReadOutput - timings.beforeReadOutput).toFixed(1),
     };
-    console.log(`[CONVERT][TIMING] Breakdown (ms):`, JSON.stringify(breakdown));
+    logInfo(['CONVERT', 'TIMING'], 'breakdown (ms):', JSON.stringify(breakdown));
     res.setHeader('X-Timing', JSON.stringify(breakdown));
 
-    console.log(`[CONVERT] Sent file hash in header: ${fileHash}`);
+    logInfo('CONVERT', `sent file hash in header: ${fileHash}`);
     res.send(binaryData);
   } catch (error) {
-    console.error('[CONVERT] Error:', error);
+    logError('CONVERT', 'error:', error);
     if (!res.headersSent) {
       res.status(500).send(`Conversion failed: ${error.message}`);
     }
@@ -646,7 +674,7 @@ app.get('/api/convert', async (req, res) => {
 // POST /converter - OnlyOffice Document Server API compatibility endpoint
 app.post('/converter', async (req, res) => {
   try {
-    console.log('[CONVERTER] OnlyOffice Document Server API request received');
+    logInfo('CONVERTER', 'OnlyOffice Document Server API request received');
 
     // Parse request body - handle both JWT token and raw payload
     let payload;
@@ -660,10 +688,10 @@ app.post('/converter', async (req, res) => {
       const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
       const payloadJson = Buffer.from(payloadBase64, 'base64').toString('utf8');
       payload = JSON.parse(payloadJson);
-      console.log('[CONVERTER] Decoded JWT payload:', { filetype: payload.filetype, outputtype: payload.outputtype });
+      logInfo('CONVERTER', 'decoded JWT payload:', { filetype: payload.filetype, outputtype: payload.outputtype });
     } else {
       payload = req.body;
-      console.log('[CONVERTER] Using raw payload:', { filetype: payload.filetype, outputtype: payload.outputtype });
+      logInfo('CONVERTER', 'using raw payload:', { filetype: payload.filetype, outputtype: payload.outputtype });
     }
 
     const { filetype, key, outputtype, title, url: payloadUrl } = payload;
@@ -690,7 +718,7 @@ app.post('/converter', async (req, res) => {
       const pathMatch = urlObj.pathname.match(/\/api\/onlyoffice\/files\/(.+)/);
       if (pathMatch) {
         inputPath = '/' + pathMatch[1].split('/').map(decodeURIComponent).join('/');
-        console.log('[CONVERTER] Extracted file path from URL:', inputPath);
+        logInfo('CONVERTER', 'extracted file path from URL:', inputPath);
       } else {
         return res.status(400).json({
           error: -1,
@@ -699,11 +727,11 @@ app.post('/converter', async (req, res) => {
       }
     }
 
-    console.log(`[CONVERTER] Converting: ${inputPath}`);
-    console.log(`[CONVERTER] Format: ${filetype} → ${outputtype}`);
+    logInfo('CONVERTER', `converting: ${inputPath}`);
+    logInfo('CONVERTER', `format: ${filetype} -> ${outputtype}`);
 
     if (!fs.existsSync(inputPath)) {
-      console.error('[CONVERTER] Input file not found:', inputPath);
+      logError('CONVERTER', 'input file not found:', inputPath);
       return res.status(404).json({
         error: -1,
         message: 'Input file not found: ' + inputPath
@@ -728,7 +756,7 @@ app.post('/converter', async (req, res) => {
     const outputPath = path.join(outputDir, outputFilename);
     const paramsPath = path.join(outputDir, `params_${fileHash}.xml`);
 
-    console.log('[CONVERTER] Output will be:', outputPath);
+    logInfo('CONVERTER', 'output will be:', outputPath);
 
     // Create XML config for x2t converter
     const xmlConfig = `<?xml version="1.0" encoding="utf-8"?>
@@ -758,13 +786,13 @@ app.post('/converter', async (req, res) => {
 `;
 
     fs.writeFileSync(paramsPath, xmlConfig);
-    console.log('[CONVERTER] XML config written');
+    logInfo('CONVERTER', 'XML config written');
 
     let x2tResult;
     try {
-      x2tResult = await runX2T(paramsPath, { logPrefix: '[CONVERTER]' });
+      x2tResult = await runX2T(paramsPath, { logScope: 'CONVERTER' });
     } catch (error) {
-      cleanupFiles([paramsPath], '[CONVERTER]');
+      cleanupFiles([paramsPath], 'CONVERTER');
       return res.status(500).json({
         error: -1,
         message: 'Conversion failed to start',
@@ -772,11 +800,11 @@ app.post('/converter', async (req, res) => {
       });
     }
 
-    cleanupFiles([paramsPath], '[CONVERTER]');
+    cleanupFiles([paramsPath], 'CONVERTER');
 
     if (x2tResult.code !== 0) {
       const details = x2tResult.stderr || x2tResult.stdout || 'x2t exited without output';
-      console.error(`[CONVERTER] Conversion failed (${x2tResult.exitDescription}):`, details);
+      logError('CONVERTER', `conversion failed (${x2tResult.exitDescription}):`, details);
       return res.status(500).json({
         error: -1,
         message: `Conversion failed (${x2tResult.exitDescription})`,
@@ -785,7 +813,7 @@ app.post('/converter', async (req, res) => {
     }
 
     if (!fs.existsSync(outputPath)) {
-      console.error('[CONVERTER] Output file not created');
+      logError('CONVERTER', 'output file not created');
       return res.status(500).json({
         error: -1,
         message: 'Output file not created'
@@ -793,7 +821,7 @@ app.post('/converter', async (req, res) => {
     }
 
     const resultUrl = `http://localhost:${PORT}/converted/${outputFilename}`;
-    console.log(`[CONVERTER] Conversion successful: ${resultUrl}`);
+    logInfo('CONVERTER', `conversion successful: ${resultUrl}`);
 
     res.json({
       url: resultUrl,
@@ -802,7 +830,7 @@ app.post('/converter', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[CONVERTER] Error:', error);
+    logError('CONVERTER', 'error:', error);
     res.status(500).json({
       error: -1,
       message: 'Internal server error',
@@ -815,10 +843,10 @@ app.get('/converted/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(__dirname, 'converted', filename);
 
-  console.log(`[CONVERTED] Request for file: ${filename}`);
+  logInfo('CONVERTED', `request for file: ${filename}`);
 
   if (!fs.existsSync(filePath)) {
-    console.error(`[CONVERTED] File not found: ${filePath}`);
+    logError('CONVERTED', `file not found: ${filePath}`);
     return res.status(404).send('File not found');
   }
 
@@ -836,9 +864,9 @@ app.get('/converted/:filename', (req, res) => {
   res.setHeader('Content-Type', contentType);
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  console.log(`[CONVERTED] Serving file: ${filePath} (${contentType})`);
+  logInfo('CONVERTED', `serving file: ${filePath} (${contentType})`);
   sendFileWithHttpErrors(res, filePath, {
-    logPrefix: '[CONVERTED]',
+    logScope: 'CONVERTED',
     notFoundBody: 'File not found',
     internalErrorBody: 'File error'
   });
@@ -859,8 +887,8 @@ app.post('/api/save', async (req, res) => {
       return res.status(400).json({ error: 'filepath must be an absolute path' });
     }
 
-    console.log(`[SAVE] Requested file: ${filepath}`);
-    console.log(`[SAVE] File hash: ${filehash || 'not provided'}`);
+    logInfo('SAVE', `requested file: ${filepath}`);
+    logInfo('SAVE', `file hash: ${filehash || 'not provided'}`);
 
     const outputDir = path.join(__dirname, 'test', 'output');
     const outputPath = filepath;
@@ -875,56 +903,56 @@ app.post('/api/save', async (req, res) => {
     // Ensure parent directory exists
     const parentDir = path.dirname(outputPath);
     if (!fs.existsSync(parentDir)) {
-      console.log(`[SAVE] Creating parent directory: ${parentDir}`);
+      logInfo('SAVE', `creating parent directory: ${parentDir}`);
       fs.mkdirSync(parentDir, { recursive: true });
     }
 
     const filename = path.basename(filepath);
 
-    console.log(`[SAVE] Saving file: ${filename}`);
-    console.log(`[SAVE] Output path: ${outputPath}`);
-    console.log(`[SAVE] Content-Type: ${req.get('Content-Type')}`);
-    console.log(`[SAVE] Body size: ${req.body.length} bytes`);
+    logInfo('SAVE', `saving file: ${filename}`);
+    logInfo('SAVE', `output path: ${outputPath}`);
+    logInfo('SAVE', `content-type: ${req.get('Content-Type')}`);
+    logInfo('SAVE', `body size: ${req.body.length} bytes`);
 
     // Debug: Check first few bytes
     const firstBytes = req.body.slice(0, 20);
-    console.log(`[SAVE] First 20 bytes (hex): ${Buffer.from(firstBytes).toString('hex')}`);
-    console.log(`[SAVE] First 20 bytes (ASCII): ${Buffer.from(firstBytes).toString('ascii').replace(/[^\x20-\x7E]/g, '.')}`);
+    logInfo('SAVE', `first 20 bytes (hex): ${Buffer.from(firstBytes).toString('hex')}`);
+    logInfo('SAVE', `first 20 bytes (ASCII): ${Buffer.from(firstBytes).toString('ascii').replace(/[^\x20-\x7E]/g, '.')}`);
 
     // Check if this is an XLSX file (should start with PK - ZIP signature)
     const isXLSX = isXLSXSignature(req.body);
-    console.log(`[SAVE] Detected format: ${isXLSX ? 'XLSX (ZIP)' : 'Unknown/Binary'}`);
+    logInfo('SAVE', `detected format: ${isXLSX ? 'XLSX (ZIP)' : 'Unknown/Binary'}`);
 
     if (isXLSX) {
       // This is already an XLSX file - just save it directly!
-      console.log('[SAVE] File is already XLSX format, saving directly...');
+      logInfo('SAVE', 'file is already XLSX format, saving directly');
       try {
         fs.writeFileSync(outputPath, req.body);
-        console.log(`[SAVE] Successfully saved XLSX file to ${outputPath}`);
+        logInfo('SAVE', `successfully saved XLSX file to ${outputPath}`);
 
         const stats = fs.statSync(outputPath);
-        console.log(`[SAVE] File size: ${stats.size} bytes`);
+        logInfo('SAVE', `file size: ${stats.size} bytes`);
 
         res.json({ success: true, path: outputPath, size: stats.size });
       } catch (error) {
-        console.error('[SAVE] Failed to save XLSX file:', error);
+        logError('SAVE', 'failed to save XLSX file:', error);
         res.status(500).send('Save failed: ' + error.message);
       }
     } else {
       // This is ONLYOFFICE binary format - convert it to the appropriate output format
-      console.log('[SAVE] File appears to be ONLYOFFICE binary format');
+      logInfo('SAVE', 'file appears to be ONLYOFFICE binary format');
 
       // Determine output format based on file extension
       const ext = path.extname(filepath).toLowerCase();
       const formatInfo = getOutputFormatInfo(ext);
 
       if (!formatInfo) {
-        console.error(`[SAVE] Unsupported file extension: ${ext}`);
+        logError('SAVE', `unsupported file extension: ${ext}`);
         return res.status(400).send('Unsupported file format');
       }
 
       const { code: formatTo, name: formatName } = formatInfo;
-      console.log(`[SAVE] Converting received data to ${formatName}...`);
+      logInfo('SAVE', `converting received data to ${formatName}`);
 
       const saveRequestId = crypto.randomUUID();
       const changesBinPath = path.join(hashDir, `temp_changes_${saveRequestId}.bin`);
@@ -932,12 +960,12 @@ app.post('/api/save', async (req, res) => {
 
       // Save the received binary data
       fs.writeFileSync(changesBinPath, req.body);
-      console.log(`[SAVE] Wrote binary data: ${changesBinPath}`);
+      logInfo('SAVE', `wrote binary data: ${changesBinPath}`);
 
       // Convert the received data (with changes) to the output format
-      console.log(`[SAVE] Converting received data (with changes) to ${formatName}...`);
-      console.log(`[SAVE] Converting from: ${changesBinPath}`);
-      console.log(`[SAVE] Output format: ${formatTo} (${formatName})`);
+      logInfo('SAVE', `converting received data (with changes) to ${formatName}`);
+      logInfo('SAVE', `converting from: ${changesBinPath}`);
+      logInfo('SAVE', `output format: ${formatTo} (${formatName})`);
 
       // CRITICAL: Use the same fonts directory for save operations
       const fontDir = FONT_DATA_DIR;
@@ -973,32 +1001,32 @@ app.post('/api/save', async (req, res) => {
 
       let x2tResult;
       try {
-        x2tResult = await runX2T(paramsPath, { logPrefix: '[SAVE]' });
+        x2tResult = await runX2T(paramsPath, { logScope: 'SAVE' });
       } catch (error) {
-        cleanupFiles([paramsPath, changesBinPath], '[SAVE]');
+        cleanupFiles([paramsPath, changesBinPath], 'SAVE');
         return res.status(500).send(`Save failed: ${error.stderr || error.stdout || error.message}`);
       }
 
-      cleanupFiles([paramsPath, changesBinPath], '[SAVE]');
+      cleanupFiles([paramsPath, changesBinPath], 'SAVE');
 
       if (x2tResult.code !== 0) {
         const details = x2tResult.stderr || x2tResult.stdout || 'x2t exited without output';
-        console.error(`[SAVE] Conversion failed (${x2tResult.exitDescription})`);
+        logError('SAVE', `conversion failed (${x2tResult.exitDescription})`);
         return res.status(500).send(`Save failed: conversion error (${x2tResult.exitDescription}): ${details}`);
       }
 
       if (!fs.existsSync(outputPath)) {
-        console.error('[SAVE] Output file not created');
+        logError('SAVE', 'output file not created');
         return res.status(500).send('Save failed: no output file');
       }
 
       const stats = fs.statSync(outputPath);
-      console.log(`[SAVE] Successfully saved to ${outputPath}`);
-      console.log(`[SAVE] File size: ${stats.size} bytes`);
+      logInfo('SAVE', `successfully saved to ${outputPath}`);
+      logInfo('SAVE', `file size: ${stats.size} bytes`);
       res.json({ success: true, path: outputPath, size: stats.size });
     }
   } catch (error) {
-    console.error('[SAVE] Error:', error);
+    logError('SAVE', 'error:', error);
     if (!res.headersSent) {
       res.status(500).send(`Save failed: ${error.message}`);
     }
@@ -1009,14 +1037,14 @@ app.post('/api/save', async (req, res) => {
 app.get('/load/:filename', (req, res) => {
   const filename = req.params.filename;
 
-  console.log(`[LOAD] Loading ${filename} with simple loader`);
+  logInfo('LOAD', `loading ${filename} with simple loader`);
 
   // Serve the simple-loader.html with filename as query parameter
   const loaderPath = path.join(__dirname, 'editors', 'simple-loader.html');
 
   fs.readFile(loaderPath, 'utf8', (err, html) => {
     if (err) {
-      console.error('[LOAD] Error reading simple-loader.html:', err);
+      logError('LOAD', 'error reading simple-loader.html:', err);
       return res.status(500).send('Failed to load editor');
     }
 
@@ -1047,7 +1075,7 @@ app.get('/open', (req, res) => {
     return res.status(400).json({ error: 'filepath must be an absolute path' });
   }
 
-  console.log(`[OPEN] Requested file: ${filepath}`);
+  logInfo('OPEN', `requested file: ${filepath}`);
 
   const filename = path.basename(filepath);
   const ext = filename.split('.').pop().toLowerCase();
@@ -1056,8 +1084,8 @@ app.get('/open', (req, res) => {
   // Build the document URL with proper encoding
   const documentUrl = `http://localhost:${PORT}/api/convert?filepath=${encodeURIComponent(filepath)}`;
 
-  console.log(`[OPEN] Opening ${filename} with offline loader`);
-  console.log(`[OPEN] Document URL: ${documentUrl}`);
+  logInfo('OPEN', `opening ${filename} with offline loader`);
+  logInfo('OPEN', `document URL: ${documentUrl}`);
 
   // Redirect to offline loader with parameters
   const redirectParams = new URLSearchParams({
@@ -1082,18 +1110,18 @@ app.get('/raw/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(__dirname, 'test', filename);
 
-  console.log(`[RAW] Serving original file: ${filename}`);
-  console.log(`[RAW] Path: ${filePath}`);
+  logInfo('RAW', `serving original file: ${filename}`);
+  logInfo('RAW', `path: ${filePath}`);
 
   // Check if file exists
   if (!fs.existsSync(filePath)) {
-    console.error(`[RAW] File not found: ${filePath}`);
+    logError('RAW', `file not found: ${filePath}`);
     return res.status(404).send('File not found');
   }
 
   // Read and send the original file
   const fileData = fs.readFileSync(filePath);
-  console.log(`[RAW] Sending ${fileData.length} bytes`);
+  logInfo('RAW', `sending ${fileData.length} bytes`);
 
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -1121,13 +1149,13 @@ app.get('/offline/:filename', (req, res) => {
     mode: 'edit'
   });
 
-  console.log(`[OFFLINE] Opening ${filename} with offline loader`);
-  console.log(`[OFFLINE] File type: ${fileExt}, Document type: ${doctype}`);
-  console.log(`[OFFLINE] Query params: ${queryParams.toString()}`);
+  logInfo('OFFLINE', `opening ${filename} with offline loader`);
+  logInfo('OFFLINE', `file type: ${fileExt}, document type: ${doctype}`);
+  logInfo('OFFLINE', `query params: ${queryParams.toString()}`);
 
   // Redirect to the offline loader HTML with query parameters
   const redirectUrl = `/offline-loader-proper.html?${queryParams.toString()}`;
-  console.log(`[OFFLINE] Redirecting to: ${redirectUrl}`);
+  logInfo('OFFLINE', `redirecting to: ${redirectUrl}`);
 
   res.redirect(redirectUrl);
 });
@@ -1138,7 +1166,7 @@ app.get('/edit/:filename', (req, res) => {
   const ext = filename.split('.').pop().toLowerCase();
   const docType = getDocTypeFromFilename(filename);
 
-  console.log(`[EDIT] Serving editor for ${filename} (${ext} / ${docType})`);
+  logInfo('EDIT', `serving editor for ${filename} (${ext} / ${docType})`);
 
   res.send(`<!DOCTYPE html>
 <html>
@@ -1154,7 +1182,7 @@ app.get('/edit/:filename', (req, res) => {
   <div id="placeholder"></div>
   <script src="/web-apps/apps/api/documents/api.js"></script>
   <script>
-    console.log('[EDITOR] Initializing ONLYOFFICE editor...');
+    console.log('[oo-editors:EDITOR] Initializing ONLYOFFICE editor...');
     new DocsAPI.DocEditor("placeholder", {
       width: "100%",
       height: "100%",
@@ -1186,7 +1214,7 @@ app.get('/edit/:filename', (req, res) => {
         }
       }
     });
-    console.log('[EDITOR] Configuration sent to DocsAPI');
+    console.log('[oo-editors:EDITOR] Configuration sent to DocsAPI');
   </script>
 </body>
 </html>`);
@@ -1197,18 +1225,18 @@ app.get('/file/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(__dirname, 'test', filename);
 
-  console.log(`[FILE] Serving file: ${filename}`);
-  console.log(`[FILE] Path: ${filePath}`);
+  logInfo('FILE', `serving file: ${filename}`);
+  logInfo('FILE', `path: ${filePath}`);
 
   // Check if file exists
   if (!fs.existsSync(filePath)) {
-    console.error(`[FILE] File not found: ${filePath}`);
+    logError('FILE', `file not found: ${filePath}`);
     return res.status(404).send('File not found');
   }
 
   // Read and send the file
   const fileData = fs.readFileSync(filePath);
-  console.log(`[FILE] Sending ${fileData.length} bytes`);
+  logInfo('FILE', `sending ${fileData.length} bytes`);
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -1262,7 +1290,7 @@ app.get('/api/document/:filename', (req, res) => {
       "height": "100%"
     });
 
-    console.log('Editor configuration:', {
+    console.log('[oo-editors:EDITOR] configuration:', {
       url: "${BASE_URL}/api/convert/${filename}",
       fileType: "${fileExt}",
       documentType: "${editorType}",
@@ -1281,7 +1309,7 @@ app.get('/desktop-stub-utils.js', (req, res) => {
   const utilsPath = path.join(__dirname, 'editors', 'desktop-stub-utils.js');
   res.setHeader('Content-Type', 'application/javascript');
   sendFileWithHttpErrors(res, utilsPath, {
-    logPrefix: '[DESKTOP-STUB-UTILS]',
+    logScope: 'DESKTOP-STUB-UTILS',
     notFoundBody: 'Asset not found',
     internalErrorBody: 'Asset error'
   });
@@ -1292,7 +1320,7 @@ app.get('/desktop-stub.js', (req, res) => {
   const stubPath = path.join(__dirname, 'editors', 'desktop-stub.js');
   res.setHeader('Content-Type', 'application/javascript');
   sendFileWithHttpErrors(res, stubPath, {
-    logPrefix: '[DESKTOP-STUB]',
+    logScope: 'DESKTOP-STUB',
     notFoundBody: 'Asset not found',
     internalErrorBody: 'Asset error'
   });
@@ -1313,7 +1341,7 @@ app.use((req, res, next) => {
     if (fs.existsSync(filePath)) {
       fs.readFile(filePath, 'utf8', (err, html) => {
         if (err) {
-          console.error('Error reading HTML file:', err);
+          logError('DESKTOP-STUB', 'error reading HTML file:', err);
           return next();
         }
 
@@ -1327,14 +1355,14 @@ app.use((req, res, next) => {
         if (scriptTagMatch) {
           const insertPosition = scriptTagMatch.index;
           modifiedHtml = html.slice(0, insertPosition) + stubScript + html.slice(insertPosition);
-          console.log(`Injected fonts-info.js + desktop-stub.js into ${req.path}`);
+          logInfo('DESKTOP-STUB', `injected fonts-info.js + desktop-stub.js into ${req.path}`);
         } else {
           // If no script tag found, try to inject before </head>
           const headEndMatch = html.match(/<\/head>/i);
           if (headEndMatch) {
             const insertPosition = headEndMatch.index;
             modifiedHtml = html.slice(0, insertPosition) + '  ' + stubScript + html.slice(insertPosition);
-            console.log(`Injected fonts-info.js + desktop-stub.js into ${req.path} (before </head>)`);
+            logInfo('DESKTOP-STUB', `injected fonts-info.js + desktop-stub.js into ${req.path} (before </head>)`);
           }
         }
 
@@ -1364,9 +1392,9 @@ app.get('*/*.wasm', (req, res, next) => {
   const filename = path.basename(req.path);
   if (wasmFiles[filename]) {
     const wasmPath = path.join(__dirname, wasmFiles[filename]);
-    console.log(`[WASM] Redirecting ${req.path} to ${wasmPath}`);
+    logInfo('WASM', `redirecting ${req.path} to ${wasmPath}`);
     sendFileWithHttpErrors(res, wasmPath, {
-      logPrefix: '[WASM]',
+      logScope: 'WASM',
       notFoundBody: 'WASM not found',
       internalErrorBody: 'WASM error'
     });
@@ -1396,16 +1424,16 @@ app.use('/static-test', express.static(path.join(__dirname, 'static-test'), {
 }));
 
 server = app.listen(PORT, () => {
-  console.log(`Server running at ${BASE_URL}/ (oo-editors ${OO_EDITORS_VERSION})`);
-  console.log('Desktop stub injection enabled for all HTML files');
-  console.log(`Static test directory at ${BASE_URL}/static-test/`);
+  logInfo('STARTUP', `server running at ${BASE_URL}/ version=${OO_EDITORS_VERSION}`);
+  logInfo('STARTUP', 'desktop stub injection enabled for all HTML files');
+  logInfo('STARTUP', `static test directory at ${BASE_URL}/static-test/`);
 });
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`[STARTUP] Port ${PORT} is already in use`);
+    logError('STARTUP', `port ${PORT} is already in use`);
   } else {
-    console.error('[STARTUP] Failed to start HTTP server:', err);
+    logError('STARTUP', 'failed to start HTTP server:', err);
   }
   shutdownServer('server.listen error', 1);
 });
