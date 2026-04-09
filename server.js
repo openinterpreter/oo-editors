@@ -12,7 +12,8 @@ const {
   getDocTypeFromFilename,
   isAbsolutePath,
   getContentType,
-  isXLSXSignature
+  isXLSXSignature,
+  classifySendFileError
 } = require('./server-utils');
 
 if (!process.env.FONT_DATA_DIR) {
@@ -48,6 +49,39 @@ app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
   next();
 });
+
+function sendFileWithHttpErrors(res, filePath, options) {
+  const {
+    logPrefix,
+    notFoundBody,
+    internalErrorBody,
+    successMessage
+  } = options;
+
+  res.sendFile(filePath, (err) => {
+    if (!err) {
+      if (successMessage) {
+        console.log(successMessage);
+      }
+      return;
+    }
+
+    const failure = classifySendFileError(err, {
+      notFoundBody,
+      internalErrorBody
+    });
+
+    if (failure.logLevel === 'warn') {
+      console.warn(`${logPrefix} sendFile returned 404: ${filePath}`);
+    } else {
+      console.error(`${logPrefix} Error serving ${filePath}:`, err);
+    }
+
+    if (!res.headersSent) {
+      res.status(failure.statusCode).send(failure.body);
+    }
+  });
+}
 
 // API Endpoint: Health check
 app.get('/healthcheck', (req, res) => {
@@ -86,8 +120,12 @@ app.get('/fonts/*', (req, res) => {
 
     res.setHeader('Content-Type', fontContentType);
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.sendFile(fontPath);
-    console.log(`[FONTS] Served font: ${fontPath}`);
+    sendFileWithHttpErrors(res, fontPath, {
+      logPrefix: '[FONTS]',
+      notFoundBody: 'Font not found',
+      internalErrorBody: 'Font error',
+      successMessage: `[FONTS] Served font: ${fontPath}`
+    });
   } catch (err) {
     console.error(`[FONTS] Error serving absolute font ${fontPath}:`, err);
     res.status(500).send('Font error');
@@ -113,7 +151,11 @@ app.get('/document_editor_service_worker.js', (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'no-cache');
   console.log('[SW] Serving document_editor_service_worker.js');
-  res.sendFile(workerPath);
+  sendFileWithHttpErrors(res, workerPath, {
+    logPrefix: '[SW]',
+    notFoundBody: 'Service worker not found',
+    internalErrorBody: 'Service worker error'
+  });
 });
 
 // Serve the desktop AllFonts.js verbatim for metadata parity
@@ -122,13 +164,10 @@ app.get('/fonts-info.js', (req, res) => {
   console.log('[API] GET /fonts-info.js - serving', allFontsPath);
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(allFontsPath, (err) => {
-    if (err) {
-      console.error('[API] Error serving AllFonts.js:', err);
-      if (!res.headersSent) {
-        res.status(err.statusCode || 500).send('// Failed to load font metadata');
-      }
-    }
+  sendFileWithHttpErrors(res, allFontsPath, {
+    logPrefix: '[API] Error serving AllFonts.js:',
+    notFoundBody: '// Failed to load font metadata',
+    internalErrorBody: '// Failed to load font metadata'
   });
 });
 
@@ -138,13 +177,10 @@ app.get('/sdkjs/common/AllFonts.js', (req, res) => {
   console.log('[API] GET /sdkjs/common/AllFonts.js - overriding with desktop AllFonts.js');
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(desktopAllFontsPath, (err) => {
-    if (err) {
-      console.error('[API] Error overriding /sdkjs/common/AllFonts.js:', err);
-      if (!res.headersSent) {
-        res.status(err.statusCode || 500).send('// Failed to load AllFonts override');
-      }
-    }
+  sendFileWithHttpErrors(res, desktopAllFontsPath, {
+    logPrefix: '[API] Error overriding /sdkjs/common/AllFonts.js:',
+    notFoundBody: '// Failed to load AllFonts override',
+    internalErrorBody: '// Failed to load AllFonts override'
   });
 });
 
@@ -220,7 +256,11 @@ app.get('/api/media/:filehash/:imagefile', (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
 
   console.log(`[MEDIA] Serving image: ${imagePath} (${contentType})`);
-  res.sendFile(imagePath);
+  sendFileWithHttpErrors(res, imagePath, {
+    logPrefix: '[MEDIA]',
+    notFoundBody: 'Image not found',
+    internalErrorBody: 'Image error'
+  });
 });
 
 // API Endpoint: Serve arbitrary files within the converted document directory (used for relative resource lookups)
@@ -249,7 +289,11 @@ app.get('/api/doc-base/:filehash/*', (req, res) => {
     return res.status(404).send('File not found');
   }
 
-  res.sendFile(requestedPath);
+  sendFileWithHttpErrors(res, requestedPath, {
+    logPrefix: '[DOC-BASE]',
+    notFoundBody: 'File not found',
+    internalErrorBody: 'File error'
+  });
 });
 
 // API Endpoint: List images in media directory for a file
@@ -660,7 +704,11 @@ app.get('/converted/:filename', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
   console.log(`[CONVERTED] Serving file: ${filePath} (${contentType})`);
-  res.sendFile(filePath);
+  sendFileWithHttpErrors(res, filePath, {
+    logPrefix: '[CONVERTED]',
+    notFoundBody: 'File not found',
+    internalErrorBody: 'File error'
+  });
 });
 
 // API Endpoint: Save binary back to XLSX
@@ -1111,14 +1159,22 @@ app.get('/api/document/:filename', (req, res) => {
 app.get('/desktop-stub-utils.js', (req, res) => {
   const utilsPath = path.join(__dirname, 'editors', 'desktop-stub-utils.js');
   res.setHeader('Content-Type', 'application/javascript');
-  res.sendFile(utilsPath);
+  sendFileWithHttpErrors(res, utilsPath, {
+    logPrefix: '[DESKTOP-STUB-UTILS]',
+    notFoundBody: 'Asset not found',
+    internalErrorBody: 'Asset error'
+  });
 });
 
 // Serve desktop-stub.js from the editors directory
 app.get('/desktop-stub.js', (req, res) => {
   const stubPath = path.join(__dirname, 'editors', 'desktop-stub.js');
   res.setHeader('Content-Type', 'application/javascript');
-  res.sendFile(stubPath);
+  sendFileWithHttpErrors(res, stubPath, {
+    logPrefix: '[DESKTOP-STUB]',
+    notFoundBody: 'Asset not found',
+    internalErrorBody: 'Asset error'
+  });
 });
 
 // Middleware to inject desktop-stub.js into HTML files
@@ -1188,7 +1244,11 @@ app.get('*/*.wasm', (req, res, next) => {
   if (wasmFiles[filename]) {
     const wasmPath = path.join(__dirname, wasmFiles[filename]);
     console.log(`[WASM] Redirecting ${req.path} to ${wasmPath}`);
-    res.sendFile(wasmPath);
+    sendFileWithHttpErrors(res, wasmPath, {
+      logPrefix: '[WASM]',
+      notFoundBody: 'WASM not found',
+      internalErrorBody: 'WASM error'
+    });
   } else {
     next();
   }

@@ -198,6 +198,37 @@ function isXLSXSignature(data) {
   return data[0] === 0x50 && data[1] === 0x4B;
 }
 
+/**
+ * Classify an Express sendFile callback error into an HTTP response.
+ * @param {Error & {statusCode?: number, status?: number, code?: string}} err
+ * @param {object} options
+ * @param {string} options.notFoundBody
+ * @param {string} options.internalErrorBody
+ * @returns {{statusCode: number, body: string, logLevel: 'warn' | 'error'}}
+ */
+function classifySendFileError(err, options) {
+  const { notFoundBody, internalErrorBody } = options;
+  const statusCode = Number.isInteger(err?.statusCode)
+    ? err.statusCode
+    : Number.isInteger(err?.status)
+      ? err.status
+      : null;
+
+  if (statusCode === 404 || err?.code === 'ENOENT') {
+    return {
+      statusCode: 404,
+      body: notFoundBody,
+      logLevel: 'warn'
+    };
+  }
+
+  return {
+    statusCode: 500,
+    body: internalErrorBody,
+    logLevel: 'error'
+  };
+}
+
 module.exports = {
   getX2TFormatCode,
   getOutputFormatInfo,
@@ -207,5 +238,6 @@ module.exports = {
   getContentType,
   generateX2TConfig,
   extractFilePathFromUrl,
-  isXLSXSignature
+  isXLSXSignature,
+  classifySendFileError
 };
