@@ -18,10 +18,6 @@ import {
   runChildProcess
 } from '../server-utils.js';
 
-function normalizePath(filepath) {
-  return filepath.replaceAll(path.sep, '/').replaceAll('\\', '/');
-}
-
 describe('getX2TFormatCode', () => {
   test('returns correct code for spreadsheet formats', () => {
     expect(getX2TFormatCode('xlsx')).toBe(257);
@@ -361,35 +357,36 @@ describe('classifySendFileError', () => {
 
 describe('resolveX2TPath', () => {
   test('prefers x2t.exe on Windows when present', () => {
+    const expectedExePath = path.join('/app', 'converter', 'x2t.exe');
+    const expectedFallbackPath = path.join('/app', 'converter', 'x2t');
     const result = resolveX2TPath('/app', {
       platform: 'win32',
-      pathExists: (candidate) => normalizePath(candidate).endsWith('x2t.exe')
+      pathExists: (candidate) => candidate === expectedExePath
     });
 
-    expect(normalizePath(result.path)).toBe('/app/converter/x2t.exe');
-    expect(result.candidates.map(normalizePath)).toEqual([
-      '/app/converter/x2t.exe',
-      '/app/converter/x2t'
-    ]);
+    expect(result.path).toBe(expectedExePath);
+    expect(result.candidates).toEqual([expectedExePath, expectedFallbackPath]);
   });
 
   test('falls back to extensionless x2t on Windows', () => {
+    const expectedPath = path.join('/app', 'converter', 'x2t');
     const result = resolveX2TPath('/app', {
       platform: 'win32',
-      pathExists: (candidate) => normalizePath(candidate).endsWith('/converter/x2t')
+      pathExists: (candidate) => candidate === expectedPath
     });
 
-    expect(normalizePath(result.path)).toBe('/app/converter/x2t');
+    expect(result.path).toBe(expectedPath);
   });
 
   test('uses extensionless x2t on non-Windows platforms', () => {
+    const expectedPath = path.join('/app', 'converter', 'x2t');
     const result = resolveX2TPath('/app', {
       platform: 'darwin',
       pathExists: () => true
     });
 
-    expect(normalizePath(result.path)).toBe('/app/converter/x2t');
-    expect(result.candidates.map(normalizePath)).toEqual(['/app/converter/x2t']);
+    expect(result.path).toBe(expectedPath);
+    expect(result.candidates).toEqual([expectedPath]);
   });
 });
 
