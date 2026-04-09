@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { EventEmitter } from 'events';
+import path from 'path';
 import { PassThrough } from 'stream';
 import {
   getX2TFormatCode,
@@ -16,6 +17,10 @@ import {
   describeChildExit,
   runChildProcess
 } from '../server-utils.js';
+
+function normalizePath(filepath) {
+  return filepath.replaceAll(path.sep, '/').replaceAll('\\', '/');
+}
 
 describe('getX2TFormatCode', () => {
   test('returns correct code for spreadsheet formats', () => {
@@ -358,11 +363,11 @@ describe('resolveX2TPath', () => {
   test('prefers x2t.exe on Windows when present', () => {
     const result = resolveX2TPath('/app', {
       platform: 'win32',
-      pathExists: (candidate) => candidate.endsWith('x2t.exe')
+      pathExists: (candidate) => normalizePath(candidate).endsWith('x2t.exe')
     });
 
-    expect(result.path).toBe('/app/converter/x2t.exe');
-    expect(result.candidates).toEqual([
+    expect(normalizePath(result.path)).toBe('/app/converter/x2t.exe');
+    expect(result.candidates.map(normalizePath)).toEqual([
       '/app/converter/x2t.exe',
       '/app/converter/x2t'
     ]);
@@ -371,10 +376,10 @@ describe('resolveX2TPath', () => {
   test('falls back to extensionless x2t on Windows', () => {
     const result = resolveX2TPath('/app', {
       platform: 'win32',
-      pathExists: (candidate) => candidate.endsWith('/converter/x2t')
+      pathExists: (candidate) => normalizePath(candidate).endsWith('/converter/x2t')
     });
 
-    expect(result.path).toBe('/app/converter/x2t');
+    expect(normalizePath(result.path)).toBe('/app/converter/x2t');
   });
 
   test('uses extensionless x2t on non-Windows platforms', () => {
@@ -383,8 +388,8 @@ describe('resolveX2TPath', () => {
       pathExists: () => true
     });
 
-    expect(result.path).toBe('/app/converter/x2t');
-    expect(result.candidates).toEqual(['/app/converter/x2t']);
+    expect(normalizePath(result.path)).toBe('/app/converter/x2t');
+    expect(result.candidates.map(normalizePath)).toEqual(['/app/converter/x2t']);
   });
 });
 
