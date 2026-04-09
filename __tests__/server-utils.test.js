@@ -296,6 +296,17 @@ describe('isXLSXSignature', () => {
 });
 
 describe('classifySendFileError', () => {
+  test('ignores aborted requests', () => {
+    expect(classifySendFileError({
+      code: 'ECONNABORTED'
+    }, {
+      notFoundBody: 'File not found',
+      internalErrorBody: 'File error'
+    })).toEqual({
+      action: 'ignore'
+    });
+  });
+
   test('maps sendFile not-found errors to HTTP 404 responses', () => {
     expect(classifySendFileError({
       statusCode: 404,
@@ -304,6 +315,21 @@ describe('classifySendFileError', () => {
       notFoundBody: 'File not found',
       internalErrorBody: 'File error'
     })).toEqual({
+      action: 'respond',
+      statusCode: 404,
+      body: 'File not found',
+      logLevel: 'warn'
+    });
+  });
+
+  test('maps directory sendFile errors to HTTP 404 responses', () => {
+    expect(classifySendFileError({
+      code: 'EISDIR'
+    }, {
+      notFoundBody: 'File not found',
+      internalErrorBody: 'File error'
+    })).toEqual({
+      action: 'respond',
       statusCode: 404,
       body: 'File not found',
       logLevel: 'warn'
@@ -315,6 +341,7 @@ describe('classifySendFileError', () => {
       notFoundBody: 'File not found',
       internalErrorBody: 'File error'
     })).toEqual({
+      action: 'respond',
       statusCode: 500,
       body: 'File error',
       logLevel: 'error'

@@ -204,7 +204,10 @@ function isXLSXSignature(data) {
  * @param {object} options
  * @param {string} options.notFoundBody
  * @param {string} options.internalErrorBody
- * @returns {{statusCode: number, body: string, logLevel: 'warn' | 'error'}}
+ * @returns {
+ *   {action: 'ignore'} |
+ *   {action: 'respond', statusCode: number, body: string, logLevel: 'warn' | 'error'}
+ * }
  */
 function classifySendFileError(err, options) {
   const { notFoundBody, internalErrorBody } = options;
@@ -214,8 +217,15 @@ function classifySendFileError(err, options) {
       ? err.status
       : null;
 
-  if (statusCode === 404 || err?.code === 'ENOENT') {
+  if (err?.code === 'ECONNABORTED') {
     return {
+      action: 'ignore'
+    };
+  }
+
+  if (statusCode === 404 || err?.code === 'ENOENT' || err?.code === 'EISDIR') {
+    return {
+      action: 'respond',
       statusCode: 404,
       body: notFoundBody,
       logLevel: 'warn'
@@ -223,6 +233,7 @@ function classifySendFileError(err, options) {
   }
 
   return {
+    action: 'respond',
     statusCode: 500,
     body: internalErrorBody,
     logLevel: 'error'

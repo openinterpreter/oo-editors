@@ -71,6 +71,10 @@ function sendFileWithHttpErrors(res, filePath, options) {
       internalErrorBody
     });
 
+    if (failure.action === 'ignore') {
+      return;
+    }
+
     if (failure.logLevel === 'warn') {
       console.warn(`${logPrefix} sendFile returned 404: ${filePath}`);
     } else {
