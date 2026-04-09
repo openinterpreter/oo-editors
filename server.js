@@ -2,9 +2,9 @@ const express = require('express');
 const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const crypto = require('crypto');
-const { spawn, spawnSync } = require('child_process');
+const { spawn } = require('child_process');
+const { version: OO_EDITORS_VERSION } = require('./package.json');
 const {
   getX2TFormatCode,
   getOutputFormatInfo,
@@ -13,7 +13,10 @@ const {
   isAbsolutePath,
   getContentType,
   isXLSXSignature,
-  classifySendFileError
+  classifySendFileError,
+  resolveX2TPath,
+  describeChildExit,
+  runChildProcess
 } = require('./server-utils');
 
 if (!process.env.FONT_DATA_DIR) {
@@ -24,8 +27,39 @@ if (!process.env.FONT_DATA_DIR) {
 const FONT_DATA_DIR = isAbsolutePath(process.env.FONT_DATA_DIR)
   ? process.env.FONT_DATA_DIR
   : path.join(__dirname, process.env.FONT_DATA_DIR);
+const THEME_DIR = path.join(__dirname, 'editors', 'sdkjs', 'slide', 'themes');
+const { path: X2T_PATH, candidates: X2T_PATH_CANDIDATES } = resolveX2TPath(__dirname, {
+  pathExists: fs.existsSync
+});
+
+if (!fs.existsSync(FONT_DATA_DIR)) {
+  console.error(`ERROR: FONT_DATA_DIR does not exist: ${FONT_DATA_DIR}`);
+  process.exit(1);
+}
+
+if (!fs.existsSync(path.join(FONT_DATA_DIR, 'AllFonts.js'))) {
+  console.error(`ERROR: AllFonts.js not found under FONT_DATA_DIR: ${FONT_DATA_DIR}`);
+  process.exit(1);
+}
+
+if (!fs.existsSync(THEME_DIR)) {
+  console.error(`ERROR: theme directory not found: ${THEME_DIR}`);
+  process.exit(1);
+}
+
+if (!fs.existsSync(X2T_PATH)) {
+  console.error(`ERROR: x2t binary not found. Checked: ${X2T_PATH_CANDIDATES.join(', ')}`);
+  process.exit(1);
+}
+
+console.log(`[STARTUP] oo-editors version=${OO_EDITORS_VERSION}`);
+console.log(`[STARTUP] Using FONT_DATA_DIR=${FONT_DATA_DIR}`);
+console.log(`[STARTUP] Using THEME_DIR=${THEME_DIR}`);
+console.log(`[STARTUP] Using x2t binary: ${X2T_PATH}`);
 
 const app = express();
+let server = null;
+let shutdownStarted = false;
 app.use(compression());
 const PORT = Number.parseInt(process.env.PORT || '38123', 10);
 const BASE_URL = `http://localhost:${PORT}`;
@@ -86,6 +120,119 @@ function sendFileWithHttpErrors(res, filePath, options) {
     }
   });
 }
+
+function cleanupFiles(filePaths, logPrefix) {
+  for (const filePath of filePaths) {
+    if (!filePath) {
+      continue;
+    }
+
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (err) {
+      console.warn(`${logPrefix} Failed to delete ${filePath}:`, err.message);
+    }
+  }
+}
+
+function runX2T(paramsPath, options) {
+  const { logPrefix } = options;
+
+  console.log(`${logPrefix} Starting x2t: ${X2T_PATH} ${paramsPath}`);
+
+  return runChildProcess((command, args) => {
+    const x2t = spawn(command, args);
+    x2t.on('spawn', () => {
+      console.log(`${logPrefix} x2t pid ${x2t.pid}`);
+    });
+    return x2t;
+  }, X2T_PATH, [paramsPath], {
+    onStdout: (output) => {
+      const trimmed = output.trim();
+      if (trimmed) {
+        console.log(`${logPrefix} [x2t stdout] ${trimmed}`);
+      }
+    },
+    onStderr: (output) => {
+      const trimmed = output.trim();
+      if (trimmed) {
+        console.error(`${logPrefix} [x2t stderr] ${trimmed}`);
+      }
+    }
+  }).then((result) => {
+    const exitDescription = describeChildExit(result.code, result.signal);
+    console.log(`${logPrefix} x2t exited with ${exitDescription}`);
+    return {
+      ...result,
+      exitDescription
+    };
+  }).catch((failure) => {
+    const error = failure.error;
+    error.stdout = failure.stdout;
+    error.stderr = failure.stderr;
+    console.error(`${logPrefix} Failed to start x2t at ${X2T_PATH}:`, error);
+    throw error;
+  });
+}
+
+function shutdownServer(reason, exitCode) {
+  if (shutdownStarted) {
+    return;
+  }
+
+  shutdownStarted = true;
+  console.warn(`[PROCESS] Shutdown requested (${reason}), exitCode=${exitCode}, version=${OO_EDITORS_VERSION}`);
+
+  const finalize = (finalCode) => {
+    console.log(`[PROCESS] Exiting with code ${finalCode}`);
+    process.exit(finalCode);
+  };
+
+  const forceExitTimer = setTimeout(() => {
+    console.error('[PROCESS] Shutdown timed out, forcing exit');
+    finalize(exitCode);
+  }, 5000);
+  forceExitTimer.unref();
+
+  if (!server) {
+    clearTimeout(forceExitTimer);
+    finalize(exitCode);
+    return;
+  }
+
+  server.close((err) => {
+    clearTimeout(forceExitTimer);
+
+    if (err) {
+      console.error('[PROCESS] Error while closing HTTP server:', err);
+      finalize(1);
+      return;
+    }
+
+    console.log('[PROCESS] HTTP server closed');
+    finalize(exitCode);
+  });
+}
+
+process.on('SIGTERM', () => shutdownServer('SIGTERM', 0));
+process.on('SIGINT', () => shutdownServer('SIGINT', 0));
+process.on('disconnect', () => shutdownServer('disconnect', 0));
+process.on('beforeExit', (code) => {
+  console.log(`[PROCESS] beforeExit with code ${code}`);
+});
+process.on('exit', (code) => {
+  console.log(`[PROCESS] exit with code ${code}`);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[PROCESS] Uncaught exception:', err);
+  shutdownServer('uncaughtException', 1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[PROCESS] Unhandled rejection:', reason);
+  shutdownServer('unhandledRejection', 1);
+});
 
 // API Endpoint: Health check
 app.get('/healthcheck', (req, res) => {
@@ -326,81 +473,82 @@ app.get('/api/media-list/:filehash', (req, res) => {
 // API Endpoint: Convert XLSX to ONLYOFFICE binary format
 // ONLY supports absolute paths via query parameter
 app.get('/api/convert', async (req, res) => {
-  const timings = { start: performance.now() };
-  const filepath = req.query.filepath;
+  try {
+    const timings = { start: performance.now() };
+    const filepath = req.query.filepath;
 
-  if (!filepath) {
-    return res.status(400).json({ error: 'filepath query parameter is required' });
-  }
-
-  if (!isAbsolutePath(filepath)) {
-    return res.status(400).json({ error: 'filepath must be an absolute path' });
-  }
-
-  console.log(`[CONVERT] Requested file: ${filepath}`);
-  timings.validated = performance.now();
-
-  // Create unique output directory based on the source file path
-  const fileHash = generateFileHash(filepath);
-  const outputDir = path.join(__dirname, 'test', 'output', fileHash);
-  const inputPath = filepath;
-
-  console.log(`[CONVERT] File hash: ${fileHash}`);
-  console.log(`[CONVERT] Output directory: ${outputDir}`);
-
-  if (!fs.existsSync(inputPath)) {
-    console.error(`[CONVERT] File not found: ${inputPath}`);
-    return res.status(404).json({ error: 'File not found at absolute path' });
-  }
-
-  const outputPath = path.join(outputDir, 'Editor.bin');
-  const paramsPath = path.join(outputDir, 'params_temp.xml');
-
-  // Extract filename from path for logging
-  const filename = path.basename(filepath);
-
-  const sourceMtime = fs.statSync(inputPath).mtimeMs;
-  if (fs.existsSync(outputPath)) {
-    const cacheMtime = fs.statSync(outputPath).mtimeMs;
-    if (cacheMtime > sourceMtime) {
-      console.log(`[CONVERT] Cache hit! Using cached Editor.bin (source: ${new Date(sourceMtime).toISOString()}, cache: ${new Date(cacheMtime).toISOString()})`);
-      timings.cacheHit = true;
-      const binaryData = fs.readFileSync(outputPath);
-
-      timings.end = performance.now();
-      const breakdown = {
-        total: (timings.end - timings.start).toFixed(1),
-        cacheHit: true,
-        validation: (timings.validated - timings.start).toFixed(1),
-      };
-      console.log(`[CONVERT][TIMING] Cache hit breakdown (ms):`, JSON.stringify(breakdown));
-
-      res.setHeader('Content-Type', 'application/octet-stream');
-      res.setHeader('Content-Disposition', `attachment; filename="Editor.bin"`);
-      res.setHeader('X-File-Hash', fileHash);
-      res.setHeader('X-Timing', JSON.stringify(breakdown));
-      res.setHeader('X-Cache', 'HIT');
-      return res.send(binaryData);
+    if (!filepath) {
+      return res.status(400).json({ error: 'filepath query parameter is required' });
     }
-    console.log(`[CONVERT] Cache stale, reconverting (source: ${new Date(sourceMtime).toISOString()}, cache: ${new Date(cacheMtime).toISOString()})`);
-  }
 
-  console.log(`[CONVERT] Converting ${filename} to binary format...`);
-  console.log(`[CONVERT] Input: ${inputPath}`);
-  console.log(`[CONVERT] Output: ${outputPath}`);
+    if (!isAbsolutePath(filepath)) {
+      return res.status(400).json({ error: 'filepath must be an absolute path' });
+    }
 
-  timings.beforeMkdir = performance.now();
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
-  timings.afterMkdir = performance.now();
+    console.log(`[CONVERT] Requested file: ${filepath}`);
+    timings.validated = performance.now();
 
-  // Create XML config for x2t
-  // CRITICAL: Use the same fonts directory that contains AllFonts.js served to browser
-  // This ensures x2t assigns the same font IDs that the browser expects
-  const fontDir = FONT_DATA_DIR;
+    // Create unique output directory based on the source file path
+    const fileHash = generateFileHash(filepath);
+    const outputDir = path.join(__dirname, 'test', 'output', fileHash);
+    const inputPath = filepath;
 
-  const xmlConfig = `<?xml version="1.0" encoding="utf-8"?>
+    console.log(`[CONVERT] File hash: ${fileHash}`);
+    console.log(`[CONVERT] Output directory: ${outputDir}`);
+
+    if (!fs.existsSync(inputPath)) {
+      console.error(`[CONVERT] File not found: ${inputPath}`);
+      return res.status(404).json({ error: 'File not found at absolute path' });
+    }
+
+    const outputPath = path.join(outputDir, 'Editor.bin');
+    const paramsPath = path.join(outputDir, 'params_temp.xml');
+
+    // Extract filename from path for logging
+    const filename = path.basename(filepath);
+
+    const sourceMtime = fs.statSync(inputPath).mtimeMs;
+    if (fs.existsSync(outputPath)) {
+      const cacheMtime = fs.statSync(outputPath).mtimeMs;
+      if (cacheMtime > sourceMtime) {
+        console.log(`[CONVERT] Cache hit! Using cached Editor.bin (source: ${new Date(sourceMtime).toISOString()}, cache: ${new Date(cacheMtime).toISOString()})`);
+        timings.cacheHit = true;
+        const binaryData = fs.readFileSync(outputPath);
+
+        timings.end = performance.now();
+        const breakdown = {
+          total: (timings.end - timings.start).toFixed(1),
+          cacheHit: true,
+          validation: (timings.validated - timings.start).toFixed(1),
+        };
+        console.log(`[CONVERT][TIMING] Cache hit breakdown (ms):`, JSON.stringify(breakdown));
+
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="Editor.bin"`);
+        res.setHeader('X-File-Hash', fileHash);
+        res.setHeader('X-Timing', JSON.stringify(breakdown));
+        res.setHeader('X-Cache', 'HIT');
+        return res.send(binaryData);
+      }
+      console.log(`[CONVERT] Cache stale, reconverting (source: ${new Date(sourceMtime).toISOString()}, cache: ${new Date(cacheMtime).toISOString()})`);
+    }
+
+    console.log(`[CONVERT] Converting ${filename} to binary format...`);
+    console.log(`[CONVERT] Input: ${inputPath}`);
+    console.log(`[CONVERT] Output: ${outputPath}`);
+
+    timings.beforeMkdir = performance.now();
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    timings.afterMkdir = performance.now();
+
+    // Create XML config for x2t
+    // CRITICAL: Use the same fonts directory that contains AllFonts.js served to browser
+    // This ensures x2t assigns the same font IDs that the browser expects
+    const fontDir = FONT_DATA_DIR;
+
+    const xmlConfig = `<?xml version="1.0" encoding="utf-8"?>
 <TaskQueueDataConvert xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
 <m_sKey>api_conversion</m_sKey>
 <m_sFileFrom>${inputPath}</m_sFileFrom>
@@ -411,7 +559,7 @@ app.get('/api/convert', async (req, res) => {
 <m_bEmbeddedFonts xsi:nil="true" />
 <m_bFromChanges>false</m_bFromChanges>
 <m_sFontDir>${fontDir}</m_sFontDir>
-<m_sThemeDir>${path.join(__dirname, 'editors', 'sdkjs', 'slide', 'themes')}</m_sThemeDir>
+<m_sThemeDir>${THEME_DIR}</m_sThemeDir>
 <m_sJsonParams>{}</m_sJsonParams>
 <m_nLcid xsi:nil="true" />
 <m_oTimestamp>${new Date().toISOString()}</m_oTimestamp>
@@ -426,47 +574,32 @@ app.get('/api/convert', async (req, res) => {
 </TaskQueueDataConvert>
 `;
 
-  // Write XML config
-  timings.beforeXmlWrite = performance.now();
-  fs.writeFileSync(paramsPath, xmlConfig);
-  timings.afterXmlWrite = performance.now();
-  console.log(`[CONVERT] XML config written to ${paramsPath}`);
+    // Write XML config
+    timings.beforeXmlWrite = performance.now();
+    fs.writeFileSync(paramsPath, xmlConfig);
+    timings.afterXmlWrite = performance.now();
+    console.log(`[CONVERT] XML config written to ${paramsPath}`);
 
-  // Run x2t converter
-  timings.beforeX2t = performance.now();
-  const x2tPath = path.join(__dirname, 'converter', 'x2t');
-  const x2t = spawn(x2tPath, [paramsPath]);
-
-  let stdout = '';
-  let stderr = '';
-
-  x2t.stdout.on('data', (data) => {
-    const output = data.toString();
-    stdout += output;
-    console.log(`[X2T STDOUT] ${output.trim()}`);
-  });
-
-  x2t.stderr.on('data', (data) => {
-    const output = data.toString();
-    stderr += output;
-    console.error(`[X2T STDERR] ${output.trim()}`);
-  });
-
-  x2t.on('close', (code) => {
-    timings.afterX2t = performance.now();
-    console.log(`[CONVERT] x2t process exited with code ${code}`);
-
-    // Clean up params file
+    // Run x2t converter
+    timings.beforeX2t = performance.now();
+    let x2tResult;
     try {
-      fs.unlinkSync(paramsPath);
-    } catch (e) {
-      console.warn('[CONVERT] Failed to delete params file:', e.message);
+      x2tResult = await runX2T(paramsPath, { logPrefix: '[CONVERT]' });
+    } catch (error) {
+      timings.afterX2t = performance.now();
+      cleanupFiles([paramsPath], '[CONVERT]');
+      const details = error.stderr || error.stdout || error.message;
+      console.error('[CONVERT] Conversion failed before x2t completed:', error);
+      return res.status(500).send(`Conversion failed: ${details}`);
     }
 
-    if (code !== 0) {
-      console.error('[CONVERT] Conversion failed!');
-      console.error('[CONVERT] stderr:', stderr);
-      return res.status(500).send('Conversion failed: ' + stderr);
+    timings.afterX2t = performance.now();
+    cleanupFiles([paramsPath], '[CONVERT]');
+
+    if (x2tResult.code !== 0) {
+      const details = x2tResult.stderr || x2tResult.stdout || 'x2t exited without output';
+      console.error(`[CONVERT] Conversion failed (${x2tResult.exitDescription})`);
+      return res.status(500).send(`Conversion failed (${x2tResult.exitDescription}): ${details}`);
     }
 
     // Check if output file was created
@@ -502,7 +635,12 @@ app.get('/api/convert', async (req, res) => {
 
     console.log(`[CONVERT] Sent file hash in header: ${fileHash}`);
     res.send(binaryData);
-  });
+  } catch (error) {
+    console.error('[CONVERT] Error:', error);
+    if (!res.headersSent) {
+      res.status(500).send(`Conversion failed: ${error.message}`);
+    }
+  }
 });
 
 // POST /converter - OnlyOffice Document Server API compatibility endpoint
@@ -604,7 +742,7 @@ app.post('/converter', async (req, res) => {
 <m_bEmbeddedFonts xsi:nil="true" />
 <m_bFromChanges>false</m_bFromChanges>
 <m_sFontDir xsi:nil="true" />
-<m_sThemeDir>${path.join(__dirname, 'editors', 'sdkjs', 'slide', 'themes')}</m_sThemeDir>
+<m_sThemeDir>${THEME_DIR}</m_sThemeDir>
 <m_sJsonParams>{}</m_sJsonParams>
 <m_nLcid xsi:nil="true" />
 <m_oTimestamp>${new Date().toISOString()}</m_oTimestamp>
@@ -622,54 +760,45 @@ app.post('/converter', async (req, res) => {
     fs.writeFileSync(paramsPath, xmlConfig);
     console.log('[CONVERTER] XML config written');
 
-    const x2tPath = path.join(__dirname, 'converter', 'x2t');
-    const x2t = spawn(x2tPath, [paramsPath]);
-
-    let stdout = '';
-    let stderr = '';
-
-    x2t.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    x2t.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    x2t.on('close', (code) => {
-      console.log(`[CONVERTER] x2t process exited with code ${code}`);
-
-      try {
-        fs.unlinkSync(paramsPath);
-      } catch (e) {
-        console.warn('[CONVERTER] Failed to delete params file:', e.message);
-      }
-
-      if (code !== 0) {
-        console.error('[CONVERTER] Conversion failed:', stderr);
-        return res.status(500).json({
-          error: -1,
-          message: 'Conversion failed',
-          details: stderr
-        });
-      }
-
-      if (!fs.existsSync(outputPath)) {
-        console.error('[CONVERTER] Output file not created');
-        return res.status(500).json({
-          error: -1,
-          message: 'Output file not created'
-        });
-      }
-
-      const resultUrl = `http://localhost:${PORT}/converted/${outputFilename}`;
-      console.log(`[CONVERTER] Conversion successful: ${resultUrl}`);
-
-      res.json({
-        url: resultUrl,
-        fileType: outputtype,
-        error: 0
+    let x2tResult;
+    try {
+      x2tResult = await runX2T(paramsPath, { logPrefix: '[CONVERTER]' });
+    } catch (error) {
+      cleanupFiles([paramsPath], '[CONVERTER]');
+      return res.status(500).json({
+        error: -1,
+        message: 'Conversion failed to start',
+        details: error.stderr || error.stdout || error.message
       });
+    }
+
+    cleanupFiles([paramsPath], '[CONVERTER]');
+
+    if (x2tResult.code !== 0) {
+      const details = x2tResult.stderr || x2tResult.stdout || 'x2t exited without output';
+      console.error(`[CONVERTER] Conversion failed (${x2tResult.exitDescription}):`, details);
+      return res.status(500).json({
+        error: -1,
+        message: `Conversion failed (${x2tResult.exitDescription})`,
+        details
+      });
+    }
+
+    if (!fs.existsSync(outputPath)) {
+      console.error('[CONVERTER] Output file not created');
+      return res.status(500).json({
+        error: -1,
+        message: 'Output file not created'
+      });
+    }
+
+    const resultUrl = `http://localhost:${PORT}/converted/${outputFilename}`;
+    console.log(`[CONVERTER] Conversion successful: ${resultUrl}`);
+
+    res.json({
+      url: resultUrl,
+      fileType: outputtype,
+      error: 0
     });
 
   } catch (error) {
@@ -717,102 +846,103 @@ app.get('/converted/:filename', (req, res) => {
 
 // API Endpoint: Save binary back to XLSX
 // ONLY supports absolute paths via query parameter
-app.post('/api/save', (req, res) => {
-  const filepath = req.query.filepath;
-  const filehash = req.query.filehash;
+app.post('/api/save', async (req, res) => {
+  try {
+    const filepath = req.query.filepath;
+    const filehash = req.query.filehash;
 
-  if (!filepath) {
-    return res.status(400).json({ error: 'filepath query parameter is required' });
-  }
-
-  if (!isAbsolutePath(filepath)) {
-    return res.status(400).json({ error: 'filepath must be an absolute path' });
-  }
-
-  console.log(`[SAVE] Requested file: ${filepath}`);
-  console.log(`[SAVE] File hash: ${filehash || 'not provided'}`);
-
-  const outputDir = path.join(__dirname, 'test', 'output');
-  const outputPath = filepath;
-
-  // Use hash-specific directory so x2t can find media files
-  // x2t looks for media/ relative to input binary location
-  const hashDir = filehash ? path.join(outputDir, filehash) : outputDir;
-  if (!fs.existsSync(hashDir)) {
-    fs.mkdirSync(hashDir, { recursive: true });
-  }
-
-  // Ensure parent directory exists
-  const parentDir = path.dirname(outputPath);
-  if (!fs.existsSync(parentDir)) {
-    console.log(`[SAVE] Creating parent directory: ${parentDir}`);
-    fs.mkdirSync(parentDir, { recursive: true });
-  }
-
-  const filename = path.basename(filepath);
-
-  console.log(`[SAVE] Saving file: ${filename}`);
-  console.log(`[SAVE] Output path: ${outputPath}`);
-  console.log(`[SAVE] Content-Type: ${req.get('Content-Type')}`);
-  console.log(`[SAVE] Body size: ${req.body.length} bytes`);
-
-  // Debug: Check first few bytes
-  const firstBytes = req.body.slice(0, 20);
-  console.log(`[SAVE] First 20 bytes (hex): ${Buffer.from(firstBytes).toString('hex')}`);
-  console.log(`[SAVE] First 20 bytes (ASCII): ${Buffer.from(firstBytes).toString('ascii').replace(/[^\x20-\x7E]/g, '.')}`);
-
-  // Check if this is an XLSX file (should start with PK - ZIP signature)
-  const isXLSX = isXLSXSignature(req.body);
-  console.log(`[SAVE] Detected format: ${isXLSX ? 'XLSX (ZIP)' : 'Unknown/Binary'}`);
-
-  if (isXLSX) {
-    // This is already an XLSX file - just save it directly!
-    console.log('[SAVE] File is already XLSX format, saving directly...');
-    try {
-      fs.writeFileSync(outputPath, req.body);
-      console.log(`[SAVE] Successfully saved XLSX file to ${outputPath}`);
-
-      const stats = fs.statSync(outputPath);
-      console.log(`[SAVE] File size: ${stats.size} bytes`);
-
-      res.json({ success: true, path: outputPath, size: stats.size });
-    } catch (error) {
-      console.error('[SAVE] Failed to save XLSX file:', error);
-      res.status(500).send('Save failed: ' + error.message);
-    }
-  } else {
-    // This is ONLYOFFICE binary format - convert it to the appropriate output format
-    console.log('[SAVE] File appears to be ONLYOFFICE binary format');
-
-    // Determine output format based on file extension
-    const ext = path.extname(filepath).toLowerCase();
-    const formatInfo = getOutputFormatInfo(ext);
-
-    if (!formatInfo) {
-      console.error(`[SAVE] Unsupported file extension: ${ext}`);
-      return res.status(400).send('Unsupported file format');
+    if (!filepath) {
+      return res.status(400).json({ error: 'filepath query parameter is required' });
     }
 
-    const { code: formatTo, name: formatName } = formatInfo;
-    console.log(`[SAVE] Converting received data to ${formatName}...`);
+    if (!isAbsolutePath(filepath)) {
+      return res.status(400).json({ error: 'filepath must be an absolute path' });
+    }
 
-    const saveRequestId = crypto.randomUUID();
-    const changesBinPath = path.join(hashDir, `temp_changes_${saveRequestId}.bin`);
-    const paramsPath = path.join(hashDir, `params_save_${saveRequestId}.xml`);
+    console.log(`[SAVE] Requested file: ${filepath}`);
+    console.log(`[SAVE] File hash: ${filehash || 'not provided'}`);
 
-    // Save the received binary data
-    fs.writeFileSync(changesBinPath, req.body);
-    console.log(`[SAVE] Wrote binary data: ${changesBinPath}`);
+    const outputDir = path.join(__dirname, 'test', 'output');
+    const outputPath = filepath;
 
-    // Convert the received data (with changes) to the output format
-    console.log(`[SAVE] Converting received data (with changes) to ${formatName}...`);
-    console.log(`[SAVE] Converting from: ${changesBinPath}`);
-    console.log(`[SAVE] Output format: ${formatTo} (${formatName})`);
+    // Use hash-specific directory so x2t can find media files
+    // x2t looks for media/ relative to input binary location
+    const hashDir = filehash ? path.join(outputDir, filehash) : outputDir;
+    if (!fs.existsSync(hashDir)) {
+      fs.mkdirSync(hashDir, { recursive: true });
+    }
 
-    // CRITICAL: Use the same fonts directory for save operations
-    const fontDir = FONT_DATA_DIR;
+    // Ensure parent directory exists
+    const parentDir = path.dirname(outputPath);
+    if (!fs.existsSync(parentDir)) {
+      console.log(`[SAVE] Creating parent directory: ${parentDir}`);
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
 
-    const xmlConfig = `<?xml version="1.0" encoding="utf-8"?>
+    const filename = path.basename(filepath);
+
+    console.log(`[SAVE] Saving file: ${filename}`);
+    console.log(`[SAVE] Output path: ${outputPath}`);
+    console.log(`[SAVE] Content-Type: ${req.get('Content-Type')}`);
+    console.log(`[SAVE] Body size: ${req.body.length} bytes`);
+
+    // Debug: Check first few bytes
+    const firstBytes = req.body.slice(0, 20);
+    console.log(`[SAVE] First 20 bytes (hex): ${Buffer.from(firstBytes).toString('hex')}`);
+    console.log(`[SAVE] First 20 bytes (ASCII): ${Buffer.from(firstBytes).toString('ascii').replace(/[^\x20-\x7E]/g, '.')}`);
+
+    // Check if this is an XLSX file (should start with PK - ZIP signature)
+    const isXLSX = isXLSXSignature(req.body);
+    console.log(`[SAVE] Detected format: ${isXLSX ? 'XLSX (ZIP)' : 'Unknown/Binary'}`);
+
+    if (isXLSX) {
+      // This is already an XLSX file - just save it directly!
+      console.log('[SAVE] File is already XLSX format, saving directly...');
+      try {
+        fs.writeFileSync(outputPath, req.body);
+        console.log(`[SAVE] Successfully saved XLSX file to ${outputPath}`);
+
+        const stats = fs.statSync(outputPath);
+        console.log(`[SAVE] File size: ${stats.size} bytes`);
+
+        res.json({ success: true, path: outputPath, size: stats.size });
+      } catch (error) {
+        console.error('[SAVE] Failed to save XLSX file:', error);
+        res.status(500).send('Save failed: ' + error.message);
+      }
+    } else {
+      // This is ONLYOFFICE binary format - convert it to the appropriate output format
+      console.log('[SAVE] File appears to be ONLYOFFICE binary format');
+
+      // Determine output format based on file extension
+      const ext = path.extname(filepath).toLowerCase();
+      const formatInfo = getOutputFormatInfo(ext);
+
+      if (!formatInfo) {
+        console.error(`[SAVE] Unsupported file extension: ${ext}`);
+        return res.status(400).send('Unsupported file format');
+      }
+
+      const { code: formatTo, name: formatName } = formatInfo;
+      console.log(`[SAVE] Converting received data to ${formatName}...`);
+
+      const saveRequestId = crypto.randomUUID();
+      const changesBinPath = path.join(hashDir, `temp_changes_${saveRequestId}.bin`);
+      const paramsPath = path.join(hashDir, `params_save_${saveRequestId}.xml`);
+
+      // Save the received binary data
+      fs.writeFileSync(changesBinPath, req.body);
+      console.log(`[SAVE] Wrote binary data: ${changesBinPath}`);
+
+      // Convert the received data (with changes) to the output format
+      console.log(`[SAVE] Converting received data (with changes) to ${formatName}...`);
+      console.log(`[SAVE] Converting from: ${changesBinPath}`);
+      console.log(`[SAVE] Output format: ${formatTo} (${formatName})`);
+
+      // CRITICAL: Use the same fonts directory for save operations
+      const fontDir = FONT_DATA_DIR;
+
+      const xmlConfig = `<?xml version="1.0" encoding="utf-8"?>
 <TaskQueueDataConvert xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
 <m_sKey>api_save</m_sKey>
 <m_sFileFrom>${changesBinPath}</m_sFileFrom>
@@ -824,7 +954,7 @@ app.post('/api/save', (req, res) => {
 <m_bEmbeddedFonts xsi:nil="true" />
 <m_bFromChanges>false</m_bFromChanges>
 <m_sFontDir>${fontDir}</m_sFontDir>
-<m_sThemeDir>${path.join(__dirname, 'editors', 'sdkjs', 'slide', 'themes')}</m_sThemeDir>
+<m_sThemeDir>${THEME_DIR}</m_sThemeDir>
 <m_sJsonParams>{}</m_sJsonParams>
 <m_nLcid xsi:nil="true" />
 <m_oTimestamp>${new Date().toISOString()}</m_oTimestamp>
@@ -839,40 +969,22 @@ app.post('/api/save', (req, res) => {
 </TaskQueueDataConvert>
 `;
 
-    fs.writeFileSync(paramsPath, xmlConfig);
+      fs.writeFileSync(paramsPath, xmlConfig);
 
-    const x2tPath = path.join(__dirname, 'converter', 'x2t');
-    const x2t = spawn(x2tPath, [paramsPath]);
-
-    let stdout = '';
-    let stderr = '';
-
-    x2t.on('error', (err) => {
-      console.error(`[SAVE] Failed to start x2t: ${err.message}`);
-    });
-
-    x2t.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    x2t.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    x2t.on('close', (code) => {
-      console.log(`[SAVE] x2t exited with code ${code}`);
-
-      // Clean up temp files
+      let x2tResult;
       try {
-        if (fs.existsSync(paramsPath)) fs.unlinkSync(paramsPath);
-        if (fs.existsSync(changesBinPath)) fs.unlinkSync(changesBinPath);
-      } catch (e) {
-        console.warn('[SAVE] Cleanup warning:', e.message);
+        x2tResult = await runX2T(paramsPath, { logPrefix: '[SAVE]' });
+      } catch (error) {
+        cleanupFiles([paramsPath, changesBinPath], '[SAVE]');
+        return res.status(500).send(`Save failed: ${error.stderr || error.stdout || error.message}`);
       }
 
-      if (code !== 0) {
-        console.error('[SAVE] Conversion failed!');
-        return res.status(500).send('Save failed: conversion error');
+      cleanupFiles([paramsPath, changesBinPath], '[SAVE]');
+
+      if (x2tResult.code !== 0) {
+        const details = x2tResult.stderr || x2tResult.stdout || 'x2t exited without output';
+        console.error(`[SAVE] Conversion failed (${x2tResult.exitDescription})`);
+        return res.status(500).send(`Save failed: conversion error (${x2tResult.exitDescription}): ${details}`);
       }
 
       if (!fs.existsSync(outputPath)) {
@@ -884,7 +996,12 @@ app.post('/api/save', (req, res) => {
       console.log(`[SAVE] Successfully saved to ${outputPath}`);
       console.log(`[SAVE] File size: ${stats.size} bytes`);
       res.json({ success: true, path: outputPath, size: stats.size });
-    });
+    }
+  } catch (error) {
+    console.error('[SAVE] Error:', error);
+    if (!res.headersSent) {
+      res.status(500).send(`Save failed: ${error.message}`);
+    }
   }
 });
 
@@ -1278,8 +1395,17 @@ app.use('/static-test', express.static(path.join(__dirname, 'static-test'), {
   }
 }));
 
-app.listen(PORT, () => {
-  console.log(`Server running at ${BASE_URL}/`);
+server = app.listen(PORT, () => {
+  console.log(`Server running at ${BASE_URL}/ (oo-editors ${OO_EDITORS_VERSION})`);
   console.log('Desktop stub injection enabled for all HTML files');
   console.log(`Static test directory at ${BASE_URL}/static-test/`);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[STARTUP] Port ${PORT} is already in use`);
+  } else {
+    console.error('[STARTUP] Failed to start HTTP server:', err);
+  }
+  shutdownServer('server.listen error', 1);
 });
