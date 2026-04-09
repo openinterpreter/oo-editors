@@ -8,7 +8,8 @@ import {
   getContentType,
   generateX2TConfig,
   extractFilePathFromUrl,
-  isXLSXSignature
+  isXLSXSignature,
+  classifySendFileError
 } from '../server-utils.js';
 
 describe('getX2TFormatCode', () => {
@@ -291,5 +292,59 @@ describe('isXLSXSignature', () => {
   test('handles null/undefined', () => {
     expect(isXLSXSignature(null)).toBe(false);
     expect(isXLSXSignature(undefined)).toBe(false);
+  });
+});
+
+describe('classifySendFileError', () => {
+  test('ignores aborted requests', () => {
+    expect(classifySendFileError({
+      code: 'ECONNABORTED'
+    }, {
+      notFoundBody: 'File not found',
+      internalErrorBody: 'File error'
+    })).toEqual({
+      action: 'ignore'
+    });
+  });
+
+  test('maps sendFile not-found errors to HTTP 404 responses', () => {
+    expect(classifySendFileError({
+      statusCode: 404,
+      code: 'ENOENT'
+    }, {
+      notFoundBody: 'File not found',
+      internalErrorBody: 'File error'
+    })).toEqual({
+      action: 'respond',
+      statusCode: 404,
+      body: 'File not found',
+      logLevel: 'warn'
+    });
+  });
+
+  test('maps directory sendFile errors to HTTP 404 responses', () => {
+    expect(classifySendFileError({
+      code: 'EISDIR'
+    }, {
+      notFoundBody: 'File not found',
+      internalErrorBody: 'File error'
+    })).toEqual({
+      action: 'respond',
+      statusCode: 404,
+      body: 'File not found',
+      logLevel: 'warn'
+    });
+  });
+
+  test('maps unexpected sendFile failures to HTTP 500 responses', () => {
+    expect(classifySendFileError(new Error('permission denied'), {
+      notFoundBody: 'File not found',
+      internalErrorBody: 'File error'
+    })).toEqual({
+      action: 'respond',
+      statusCode: 500,
+      body: 'File error',
+      logLevel: 'error'
+    });
   });
 });
