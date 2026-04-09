@@ -240,6 +240,136 @@ function classifySendFileError(err, options) {
   };
 }
 
+/**
+ * Resolve the x2t binary path for the current platform.
+ * On Windows we prefer x2t.exe but tolerate legacy packaging that omits the extension.
+ * @param {string} rootDir
+ * @param {object} [options]
+ * @param {string} [options.platform]
+ * @param {(filepath: string) => boolean} [options.pathExists]
+ * @returns {{ path: string, candidates: string[] }}
+ */
+function resolveX2TPath(rootDir, options = {}) {
+  const platform = options.platform || process.platform;
+  const pathExists = options.pathExists || (() => true);
+  const candidates = platform === 'win32'
+    ? [
+        path.join(rootDir, 'converter', 'x2t.exe'),
+        path.join(rootDir, 'converter', 'x2t')
+      ]
+    : [path.join(rootDir, 'converter', 'x2t')];
+
+  return {
+    path: candidates.find((candidate) => pathExists(candidate)) || candidates[0],
+    candidates
+  };
+}
+
+/**
+ * Convert a child-process close event into a short human-readable description.
+ * @param {number|null|undefined} code
+ * @param {NodeJS.Signals|string|null|undefined} signal
+ * @returns {string}
+ */
+function describeChildExit(code, signal) {
+  if (signal) {
+    return `signal ${signal}`;
+  }
+
+  if (Number.isInteger(code)) {
+    return `code ${code}`;
+  }
+
+  return 'unknown exit status';
+}
+
+/**
+ * Decide how a completed child process stderr buffer should be logged.
+ * We wait until exit so successful tools that write noisy diagnostics to stderr
+ * do not get treated like failures, while failed exits still preserve the full
+ * stderr buffer in one log entry for debugging/Sentry.
+ * @param {{code: number|null, signal: NodeJS.Signals|string|null, stderr: string}} result
+ * @returns {{level: 'info' | 'error', output: string} | null}
+ */
+function getBufferedStderrLog(result) {
+  const output = result?.stderr?.trim();
+
+  if (!output) {
+    return null;
+  }
+
+  if (result.code === 0 && !result.signal) {
+    return { level: 'info', output };
+  }
+
+  return { level: 'error', output };
+}
+
+/**
+ * Run a spawned child process and capture its output without leaving unhandled
+ * error events behind.
+ * @param {(command: string, args: string[]) => import('child_process').ChildProcess} spawnFn
+ * @param {string} command
+ * @param {string[]} args
+ * @param {object} [options]
+ * @param {(chunk: string) => void} [options.onStdout]
+ * @param {(chunk: string) => void} [options.onStderr]
+ * @returns {Promise<{code: number|null, signal: NodeJS.Signals|null, stdout: string, stderr: string}>}
+ */
+function runChildProcess(spawnFn, command, args, options = {}) {
+  const { onStdout, onStderr } = options;
+
+  return new Promise((resolve, reject) => {
+    let child;
+
+    try {
+      child = spawnFn(command, args);
+    } catch (error) {
+      reject({ error, stdout: '', stderr: '' });
+      return;
+    }
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const finishResolve = (code, signal) => {
+      if (settled) return;
+      settled = true;
+      resolve({ code, signal, stdout, stderr });
+    };
+
+    const finishReject = (error) => {
+      if (settled) return;
+      settled = true;
+      reject({ error, stdout, stderr });
+    };
+
+    if (child.stdout && typeof child.stdout.on === 'function') {
+      child.stdout.on('data', (data) => {
+        const output = data.toString();
+        stdout += output;
+        if (typeof onStdout === 'function') {
+          onStdout(output);
+        }
+      });
+    }
+
+    if (child.stderr && typeof child.stderr.on === 'function') {
+      child.stderr.on('data', (data) => {
+        const output = data.toString();
+        stderr += output;
+        if (typeof onStderr === 'function') {
+          onStderr(output);
+        }
+      });
+    }
+
+    child.once('error', finishReject);
+    child.once('close', finishResolve);
+  });
+}
+
 module.exports = {
   getX2TFormatCode,
   getOutputFormatInfo,
@@ -250,5 +380,9 @@ module.exports = {
   generateX2TConfig,
   extractFilePathFromUrl,
   isXLSXSignature,
-  classifySendFileError
+  classifySendFileError,
+  resolveX2TPath,
+  describeChildExit,
+  getBufferedStderrLog,
+  runChildProcess
 };

@@ -1,4 +1,7 @@
 import { describe, test, expect } from 'bun:test';
+import { EventEmitter } from 'events';
+import path from 'path';
+import { PassThrough } from 'stream';
 import {
   getX2TFormatCode,
   getOutputFormatInfo,
@@ -9,7 +12,11 @@ import {
   generateX2TConfig,
   extractFilePathFromUrl,
   isXLSXSignature,
-  classifySendFileError
+  classifySendFileError,
+  resolveX2TPath,
+  describeChildExit,
+  getBufferedStderrLog,
+  runChildProcess
 } from '../server-utils.js';
 
 describe('getX2TFormatCode', () => {
@@ -345,6 +352,139 @@ describe('classifySendFileError', () => {
       statusCode: 500,
       body: 'File error',
       logLevel: 'error'
+    });
+  });
+});
+
+describe('resolveX2TPath', () => {
+  test('prefers x2t.exe on Windows when present', () => {
+    const expectedExePath = path.join('/app', 'converter', 'x2t.exe');
+    const expectedFallbackPath = path.join('/app', 'converter', 'x2t');
+    const result = resolveX2TPath('/app', {
+      platform: 'win32',
+      pathExists: (candidate) => candidate === expectedExePath
+    });
+
+    expect(result.path).toBe(expectedExePath);
+    expect(result.candidates).toEqual([expectedExePath, expectedFallbackPath]);
+  });
+
+  test('falls back to extensionless x2t on Windows', () => {
+    const expectedPath = path.join('/app', 'converter', 'x2t');
+    const result = resolveX2TPath('/app', {
+      platform: 'win32',
+      pathExists: (candidate) => candidate === expectedPath
+    });
+
+    expect(result.path).toBe(expectedPath);
+  });
+
+  test('uses extensionless x2t on non-Windows platforms', () => {
+    const expectedPath = path.join('/app', 'converter', 'x2t');
+    const result = resolveX2TPath('/app', {
+      platform: 'darwin',
+      pathExists: () => true
+    });
+
+    expect(result.path).toBe(expectedPath);
+    expect(result.candidates).toEqual([expectedPath]);
+  });
+});
+
+describe('describeChildExit', () => {
+  test('describes signal exits', () => {
+    expect(describeChildExit(null, 'SIGTERM')).toBe('signal SIGTERM');
+  });
+
+  test('describes numeric exit codes', () => {
+    expect(describeChildExit(1, null)).toBe('code 1');
+    expect(describeChildExit(0, null)).toBe('code 0');
+  });
+
+  test('handles missing exit details', () => {
+    expect(describeChildExit(undefined, undefined)).toBe('unknown exit status');
+  });
+});
+
+describe('getBufferedStderrLog', () => {
+  test('returns the full stderr buffer as an error for non-zero exits', () => {
+    expect(getBufferedStderrLog({
+      code: 1,
+      signal: null,
+      stderr: 'first line\nsecond line\n'
+    })).toEqual({
+      level: 'error',
+      output: 'first line\nsecond line'
+    });
+  });
+
+  test('returns info for successful exits with stderr output', () => {
+    expect(getBufferedStderrLog({
+      code: 0,
+      signal: null,
+      stderr: 'warning\n'
+    })).toEqual({
+      level: 'info',
+      output: 'warning'
+    });
+  });
+});
+
+describe('runChildProcess', () => {
+  function createChild() {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    return child;
+  }
+
+  test('captures stdout, stderr, exit code, and signal', async () => {
+    const child = createChild();
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    const promise = runChildProcess(() => child, 'x2t', ['params.xml'], {
+      onStdout: (chunk) => stdoutChunks.push(chunk),
+      onStderr: (chunk) => stderrChunks.push(chunk)
+    });
+
+    child.stdout.write('hello ');
+    child.stderr.write('oops');
+    child.stdout.end('world');
+    child.emit('close', 0, null);
+
+    await expect(promise).resolves.toEqual({
+      code: 0,
+      signal: null,
+      stdout: 'hello world',
+      stderr: 'oops'
+    });
+    expect(stdoutChunks).toEqual(['hello ', 'world']);
+    expect(stderrChunks).toEqual(['oops']);
+  });
+
+  test('rejects with captured output when the child emits an error', async () => {
+    const child = createChild();
+    const promise = runChildProcess(() => child, 'x2t', ['params.xml']);
+
+    child.stderr.write('missing dll');
+    child.emit('error', new Error('spawn EPERM'));
+
+    await expect(promise).rejects.toMatchObject({
+      error: expect.any(Error),
+      stdout: '',
+      stderr: 'missing dll'
+    });
+  });
+
+  test('rejects when spawn throws synchronously', async () => {
+    const promise = runChildProcess(() => {
+      throw new Error('missing binary');
+    }, 'x2t', ['params.xml']);
+
+    await expect(promise).rejects.toMatchObject({
+      error: expect.any(Error),
+      stdout: '',
+      stderr: ''
     });
   });
 });
