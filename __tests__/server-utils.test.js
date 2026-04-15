@@ -63,6 +63,7 @@ describe('getOutputFormatInfo', () => {
   test('returns info for spreadsheet extensions', () => {
     expect(getOutputFormatInfo('.xlsx')).toEqual({ code: 257, name: 'XLSX' });
     expect(getOutputFormatInfo('.xls')).toEqual({ code: 257, name: 'XLSX' });
+    expect(getOutputFormatInfo('.xlsm')).toEqual({ code: 257, name: 'XLSX' });
     expect(getOutputFormatInfo('.ods')).toEqual({ code: 257, name: 'XLSX' });
   });
 

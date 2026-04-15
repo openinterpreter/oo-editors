@@ -6,6 +6,13 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { version: OO_EDITORS_VERSION } = require('./package.json');
 const {
+  initOoEditorsSentry,
+  addLifecycleBreadcrumb,
+  captureLifecycleMessage,
+  captureLifecycleException,
+  flushSentry
+} = require('./sentry');
+const {
   getX2TFormatCode,
   getOutputFormatInfo,
   generateFileHash,
@@ -21,6 +28,7 @@ const {
 } = require('./server-utils');
 
 const LOG_NAMESPACE = 'oo-editors';
+const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 5000;
 
 function normalizeLogScope(scope) {
   return Array.isArray(scope) ? scope : [scope];
@@ -41,6 +49,8 @@ function logWarn(scope, message, ...args) {
 function logError(scope, message, ...args) {
   console.error(`${formatLogScope(scope)} ${message}`, ...args);
 }
+
+initOoEditorsSentry();
 
 if (!process.env.FONT_DATA_DIR) {
   logError('STARTUP', 'FONT_DATA_DIR environment variable is required');
@@ -79,6 +89,14 @@ logInfo('STARTUP', `version=${OO_EDITORS_VERSION}`);
 logInfo('STARTUP', `FONT_DATA_DIR=${FONT_DATA_DIR}`);
 logInfo('STARTUP', `THEME_DIR=${THEME_DIR}`);
 logInfo('STARTUP', `x2t=${X2T_PATH}`);
+addLifecycleBreadcrumb('startup checks passed', {
+  version: OO_EDITORS_VERSION,
+  fontDataDir: FONT_DATA_DIR,
+  themeDir: THEME_DIR,
+  x2tPath: X2T_PATH
+}, {
+  category: 'oo-editors.startup'
+});
 
 const app = express();
 let server = null;
@@ -163,12 +181,25 @@ function cleanupFiles(filePaths, logScope) {
 
 function runX2T(paramsPath, options) {
   const { logScope } = options;
+  const lifecycleScope = normalizeLogScope(logScope).join(':').toLowerCase();
 
+  addLifecycleBreadcrumb('starting x2t', {
+    logScope: lifecycleScope,
+    paramsFile: path.basename(paramsPath)
+  }, {
+    category: 'oo-editors.x2t'
+  });
   logInfo(logScope, `Starting x2t: ${X2T_PATH} ${paramsPath}`);
 
   return runChildProcess((command, args) => {
     const x2t = spawn(command, args);
     x2t.on('spawn', () => {
+      addLifecycleBreadcrumb('x2t spawned', {
+        logScope: lifecycleScope,
+        pid: x2t.pid
+      }, {
+        category: 'oo-editors.x2t'
+      });
       logInfo(logScope, `x2t pid=${x2t.pid}`);
     });
     return x2t;
@@ -192,6 +223,15 @@ function runX2T(paramsPath, options) {
       }
     }
 
+    addLifecycleBreadcrumb('x2t exited', {
+      logScope: lifecycleScope,
+      code: result.code,
+      signal: result.signal,
+      exitDescription
+    }, {
+      category: 'oo-editors.x2t',
+      level: result.code === 0 ? 'info' : 'error'
+    });
     logInfo(logScope, `x2t exited with ${exitDescription}`);
     return {
       ...result,
@@ -201,6 +241,20 @@ function runX2T(paramsPath, options) {
     const error = failure.error;
     error.stdout = failure.stdout;
     error.stderr = failure.stderr;
+    addLifecycleBreadcrumb('x2t failed to start', {
+      logScope: lifecycleScope,
+      message: error.message
+    }, {
+      category: 'oo-editors.x2t',
+      level: 'error'
+    });
+    captureLifecycleException(error, {
+      level: 'error',
+      tags: {
+        phase: 'x2t-start',
+        logScope: lifecycleScope
+      }
+    });
     logError(logScope, `Failed to start x2t at ${X2T_PATH}:`, error);
     throw error;
   });
@@ -212,26 +266,41 @@ function shutdownServer(reason, exitCode) {
   }
 
   shutdownStarted = true;
+  addLifecycleBreadcrumb('shutdown requested', {
+    reason,
+    exitCode,
+    serverListening: Boolean(server && server.listening)
+  }, {
+    category: 'oo-editors.process',
+    level: exitCode === 0 ? 'info' : 'error'
+  });
   logInfo('PROCESS', `shutdown requested (${reason}), exitCode=${exitCode}, version=${OO_EDITORS_VERSION}`);
 
   const finalize = (finalCode) => {
     logInfo('PROCESS', `exiting with code ${finalCode}`);
-    process.exit(finalCode);
+    void flushSentry().finally(() => {
+      process.exit(finalCode);
+    });
   };
 
   const forceExitTimer = setTimeout(() => {
+    captureLifecycleMessage('oo-editors shutdown timed out', {
+      level: 'error',
+      tags: {
+        phase: 'shutdown-timeout'
+      },
+      data: {
+        reason,
+        exitCode,
+        timeoutMs: SHUTDOWN_FORCE_EXIT_TIMEOUT_MS
+      }
+    });
     logError('PROCESS', 'shutdown timed out, forcing exit');
-    finalize(exitCode);
-  }, 5000);
+    process.exit(exitCode);
+  }, SHUTDOWN_FORCE_EXIT_TIMEOUT_MS);
   forceExitTimer.unref();
 
-  if (!server) {
-    clearTimeout(forceExitTimer);
-    finalize(exitCode);
-    return;
-  }
-
-  if (!server.listening) {
+  if (!server || !server.listening) {
     clearTimeout(forceExitTimer);
     finalize(exitCode);
     return;
@@ -241,6 +310,15 @@ function shutdownServer(reason, exitCode) {
     clearTimeout(forceExitTimer);
 
     if (err) {
+      captureLifecycleException(err, {
+        level: 'error',
+        tags: {
+          phase: 'shutdown-close'
+        },
+        data: {
+          reason
+        }
+      });
       logError('PROCESS', 'error while closing HTTP server:', err);
       finalize(1);
       return;
@@ -261,10 +339,35 @@ process.on('exit', (code) => {
   logInfo('PROCESS', `exit with code ${code}`);
 });
 process.on('uncaughtException', (err) => {
+  addLifecycleBreadcrumb('uncaught exception', {
+    message: err.message,
+    name: err.name
+  }, {
+    category: 'oo-editors.process',
+    level: 'error'
+  });
+  captureLifecycleException(err, {
+    level: 'fatal',
+    tags: {
+      phase: 'uncaughtException'
+    }
+  });
   logError('PROCESS', 'uncaught exception:', err);
   shutdownServer('uncaughtException', 1);
 });
 process.on('unhandledRejection', (reason) => {
+  addLifecycleBreadcrumb('unhandled rejection', {
+    reason: reason instanceof Error ? reason.message : String(reason)
+  }, {
+    category: 'oo-editors.process',
+    level: 'error'
+  });
+  captureLifecycleException(reason, {
+    level: 'fatal',
+    tags: {
+      phase: 'unhandledRejection'
+    }
+  });
   logError('PROCESS', 'unhandled rejection:', reason);
   shutdownServer('unhandledRejection', 1);
 });
@@ -1442,6 +1545,13 @@ server = app.listen(PORT, () => {
   logInfo('STARTUP', `server running at ${BASE_URL}/ version=${OO_EDITORS_VERSION}`);
   logInfo('STARTUP', 'desktop stub injection enabled for all HTML files');
   logInfo('STARTUP', `static test directory at ${BASE_URL}/static-test/`);
+  addLifecycleBreadcrumb('server listening', {
+    baseUrl: BASE_URL,
+    port: PORT,
+    version: OO_EDITORS_VERSION
+  }, {
+    category: 'oo-editors.startup'
+  });
 });
 
 server.on('error', (err) => {
@@ -1450,5 +1560,22 @@ server.on('error', (err) => {
   } else {
     logError('STARTUP', 'failed to start HTTP server:', err);
   }
+  addLifecycleBreadcrumb('server listen failed', {
+    code: err.code,
+    message: err.message,
+    port: PORT
+  }, {
+    category: 'oo-editors.startup',
+    level: 'error'
+  });
+  captureLifecycleException(err, {
+    level: 'error',
+    tags: {
+      phase: 'server-listen'
+    },
+    data: {
+      port: PORT
+    }
+  });
   shutdownServer('server.listen error', 1);
 });
