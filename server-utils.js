@@ -29,7 +29,7 @@ function getX2TFormatCode(formatString) {
 function getOutputFormatInfo(ext) {
   const normalized = ext.toLowerCase();
   
-  if (normalized === '.xlsx' || normalized === '.xls' || normalized === '.ods') {
+  if (normalized === '.xlsx' || normalized === '.xls' || normalized === '.xlsm' || normalized === '.ods') {
     return { code: 257, name: 'XLSX' };
   } else if (normalized === '.csv') {
     return { code: 260, name: 'CSV' };

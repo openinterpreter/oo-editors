@@ -8,8 +8,8 @@ const SERVER_URL = process.env.SERVER_URL || 'http://localhost:38123';
 const FIXTURES_DIR = path.resolve(import.meta.dir, '..', '.github/assets');
 const tempFiles = [];
 
-function tempPath() {
-  const p = path.join(os.tmpdir(), `oo-editors-test-${crypto.randomUUID()}.csv`);
+function tempPath(ext) {
+  const p = path.join(os.tmpdir(), `oo-editors-test-${crypto.randomUUID()}${ext}`);
   tempFiles.push(p);
   return p;
 }
@@ -31,6 +31,7 @@ afterAll(() => {
 
 async function convertAndSave(fixtureName) {
   const fixturePath = path.join(FIXTURES_DIR, fixtureName);
+  const fixtureExt = path.extname(fixtureName);
 
   const convertRes = await fetch(
     `${SERVER_URL}/api/convert?filepath=${encodeURIComponent(fixturePath)}`
@@ -43,7 +44,7 @@ async function convertAndSave(fixtureName) {
   const binary = await convertRes.arrayBuffer();
   expect(binary.byteLength).toBeGreaterThan(0);
 
-  const outPath = tempPath();
+  const outPath = tempPath(fixtureExt);
   const saveRes = await fetch(
     `${SERVER_URL}/api/save?filepath=${encodeURIComponent(outPath)}&filehash=${fileHash}`,
     {
