@@ -150,6 +150,7 @@ function initOoEditorsSentry() {
       runtime,
       release: `oo-editors@${OO_EDITORS_VERSION}`
     });
+    console.log('[oo-editors:SENTRY] initialized');
     return true;
   } catch (error) {
     console.error('[oo-editors:SENTRY] init failed:', error);
