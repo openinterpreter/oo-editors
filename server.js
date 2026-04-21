@@ -29,6 +29,9 @@ const {
 
 const LOG_NAMESPACE = 'oo-editors';
 const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 5000;
+let stdoutBrokenPipe = false;
+let stderrBrokenPipe = false;
+let brokenPipeTelemetrySent = false;
 
 function normalizeLogScope(scope) {
   return Array.isArray(scope) ? scope : [scope];
@@ -38,16 +41,79 @@ function formatLogScope(scope) {
   return `[${LOG_NAMESPACE}:${normalizeLogScope(scope).join(':')}]`;
 }
 
+function isBrokenPipeError(error) {
+  const message = error && typeof error.message === 'string' ? error.message : '';
+  return Boolean(error && (
+    error.code === 'EPIPE'
+    || error.errno === 'EPIPE'
+    || message.includes('EPIPE')
+  ));
+}
+
+function markBrokenPipeStream(streamName, error) {
+  if (streamName === 'stdout') {
+    stdoutBrokenPipe = true;
+  } else {
+    stderrBrokenPipe = true;
+  }
+
+  if (brokenPipeTelemetrySent) {
+    return;
+  }
+
+  brokenPipeTelemetrySent = true;
+  const details = {
+    stream: streamName,
+    message: error && error.message ? error.message : 'write EPIPE'
+  };
+
+  addLifecycleBreadcrumb('stdio broken pipe', details, {
+    category: 'oo-editors.process',
+    level: 'warning'
+  });
+  captureLifecycleMessage('oo-editors stdio broken pipe', {
+    level: 'warning',
+    tags: {
+      phase: 'stdio',
+      stream: streamName
+    },
+    data: details
+  });
+}
+
+function writeLog(method, streamName, scope, message, args) {
+  if (streamName === 'stdout' && stdoutBrokenPipe) {
+    return;
+  }
+
+  if (streamName === 'stderr' && stderrBrokenPipe) {
+    return;
+  }
+
+  const formatted = `${formatLogScope(scope)} ${message}`;
+
+  try {
+    console[method](formatted, ...args);
+  } catch (error) {
+    if (isBrokenPipeError(error)) {
+      markBrokenPipeStream(streamName, error);
+      return;
+    }
+
+    throw error;
+  }
+}
+
 function logInfo(scope, message, ...args) {
-  console.log(`${formatLogScope(scope)} ${message}`, ...args);
+  writeLog('log', 'stdout', scope, message, args);
 }
 
 function logWarn(scope, message, ...args) {
-  console.log(`${formatLogScope(scope)} ${message}`, ...args);
+  writeLog('log', 'stdout', scope, message, args);
 }
 
 function logError(scope, message, ...args) {
-  console.error(`${formatLogScope(scope)} ${message}`, ...args);
+  writeLog('error', 'stderr', scope, message, args);
 }
 
 initOoEditorsSentry();
@@ -329,6 +395,36 @@ function shutdownServer(reason, exitCode) {
   });
 }
 
+function handleStdIoStreamError(streamName, error) {
+  if (isBrokenPipeError(error)) {
+    markBrokenPipeStream(streamName, error);
+    shutdownServer(`${streamName}-epipe`, 0);
+    return;
+  }
+
+  addLifecycleBreadcrumb('stdio stream error', {
+    stream: streamName,
+    message: error && error.message ? error.message : String(error)
+  }, {
+    category: 'oo-editors.process',
+    level: 'error'
+  });
+  captureLifecycleException(error, {
+    level: 'error',
+    tags: {
+      phase: 'stdio',
+      stream: streamName
+    }
+  });
+  shutdownServer(`${streamName}-error`, 1);
+}
+
+process.stdout.on('error', (error) => {
+  handleStdIoStreamError('stdout', error);
+});
+process.stderr.on('error', (error) => {
+  handleStdIoStreamError('stderr', error);
+});
 process.on('SIGTERM', () => shutdownServer('SIGTERM', 0));
 process.on('SIGINT', () => shutdownServer('SIGINT', 0));
 process.on('disconnect', () => shutdownServer('disconnect', 0));
@@ -339,6 +435,12 @@ process.on('exit', (code) => {
   logInfo('PROCESS', `exit with code ${code}`);
 });
 process.on('uncaughtException', (err) => {
+  if (isBrokenPipeError(err)) {
+    markBrokenPipeStream('stdout', err);
+    shutdownServer('uncaughtException-epipe', 0);
+    return;
+  }
+
   addLifecycleBreadcrumb('uncaught exception', {
     message: err.message,
     name: err.name
@@ -356,6 +458,12 @@ process.on('uncaughtException', (err) => {
   shutdownServer('uncaughtException', 1);
 });
 process.on('unhandledRejection', (reason) => {
+  if (isBrokenPipeError(reason)) {
+    markBrokenPipeStream('stdout', reason);
+    shutdownServer('unhandledRejection-epipe', 0);
+    return;
+  }
+
   addLifecycleBreadcrumb('unhandled rejection', {
     reason: reason instanceof Error ? reason.message : String(reason)
   }, {
