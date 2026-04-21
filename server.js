@@ -50,6 +50,19 @@ function isBrokenPipeError(error) {
   ));
 }
 
+function getErrorOwnProperties(error) {
+  if (!error || typeof error !== 'object') {
+    return {};
+  }
+
+  const details = {};
+  for (const key of Object.getOwnPropertyNames(error)) {
+    details[key] = error[key];
+  }
+
+  return details;
+}
+
 function markBrokenPipeStream(streamName, error) {
   if (streamName === 'stdout') {
     stdoutBrokenPipe = true;
@@ -63,21 +76,34 @@ function markBrokenPipeStream(streamName, error) {
 
   brokenPipeTelemetrySent = true;
   const details = {
+    event: 'stdio broken pipe',
     stream: streamName,
-    message: error && error.message ? error.message : 'write EPIPE'
+    timestamp: new Date().toISOString(),
+    pid: process.pid,
+    ppid: process.ppid,
+    runtime: typeof Bun !== 'undefined' && typeof Bun.version === 'string'
+      ? `bun-${Bun.version}`
+      : `node-${process.versions.node}`,
+    brokenPipeState: {
+      stdoutBrokenPipe,
+      stderrBrokenPipe,
+      brokenPipeTelemetrySent
+    },
+    errorType: error && error.constructor ? error.constructor.name : typeof error,
+    error: {
+      name: error && error.name ? error.name : 'Error',
+      message: error && error.message ? error.message : 'write EPIPE',
+      code: error && error.code ? error.code : 'EPIPE',
+      errno: error && error.errno ? error.errno : 'EPIPE',
+      syscall: error && error.syscall ? error.syscall : null,
+      stack: error && error.stack ? error.stack : null,
+      ownProperties: getErrorOwnProperties(error)
+    }
   };
 
   addLifecycleBreadcrumb('stdio broken pipe', details, {
     category: 'oo-editors.process',
     level: 'warning'
-  });
-  captureLifecycleMessage('oo-editors stdio broken pipe', {
-    level: 'warning',
-    tags: {
-      phase: 'stdio',
-      stream: streamName
-    },
-    data: details
   });
 }
 
