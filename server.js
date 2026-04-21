@@ -13,6 +13,11 @@ const {
   flushSentry
 } = require('./sentry');
 const {
+  createStdIoState,
+  handleProcessFailure,
+  handleStdIoStreamError
+} = require('./server-lifecycle');
+const {
   getX2TFormatCode,
   getOutputFormatInfo,
   generateFileHash,
@@ -29,6 +34,14 @@ const {
 
 const LOG_NAMESPACE = 'oo-editors';
 const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 5000;
+const stdioState = createStdIoState({
+  onBrokenPipeTelemetry: (details) => {
+    addLifecycleBreadcrumb('stdio broken pipe', details, {
+      category: 'oo-editors.process',
+      level: 'warning'
+    });
+  }
+});
 
 function normalizeLogScope(scope) {
   return Array.isArray(scope) ? scope : [scope];
@@ -38,16 +51,20 @@ function formatLogScope(scope) {
   return `[${LOG_NAMESPACE}:${normalizeLogScope(scope).join(':')}]`;
 }
 
+function writeLog(method, streamName, scope, message, args) {
+  stdioState.writeLog(method, streamName, `${formatLogScope(scope)} ${message}`, args, console);
+}
+
 function logInfo(scope, message, ...args) {
-  console.log(`${formatLogScope(scope)} ${message}`, ...args);
+  writeLog('log', 'stdout', scope, message, args);
 }
 
 function logWarn(scope, message, ...args) {
-  console.log(`${formatLogScope(scope)} ${message}`, ...args);
+  writeLog('log', 'stdout', scope, message, args);
 }
 
 function logError(scope, message, ...args) {
-  console.error(`${formatLogScope(scope)} ${message}`, ...args);
+  writeLog('error', 'stderr', scope, message, args);
 }
 
 initOoEditorsSentry();
@@ -329,6 +346,22 @@ function shutdownServer(reason, exitCode) {
   });
 }
 
+process.stdout.on('error', (error) => {
+  handleStdIoStreamError('stdout', error, {
+    stdioState,
+    addBreadcrumb: addLifecycleBreadcrumb,
+    captureException: captureLifecycleException,
+    shutdown: shutdownServer
+  });
+});
+process.stderr.on('error', (error) => {
+  handleStdIoStreamError('stderr', error, {
+    stdioState,
+    addBreadcrumb: addLifecycleBreadcrumb,
+    captureException: captureLifecycleException,
+    shutdown: shutdownServer
+  });
+});
 process.on('SIGTERM', () => shutdownServer('SIGTERM', 0));
 process.on('SIGINT', () => shutdownServer('SIGINT', 0));
 process.on('disconnect', () => shutdownServer('disconnect', 0));
@@ -339,37 +372,20 @@ process.on('exit', (code) => {
   logInfo('PROCESS', `exit with code ${code}`);
 });
 process.on('uncaughtException', (err) => {
-  addLifecycleBreadcrumb('uncaught exception', {
-    message: err.message,
-    name: err.name
-  }, {
-    category: 'oo-editors.process',
-    level: 'error'
+  handleProcessFailure('uncaughtException', err, {
+    addBreadcrumb: addLifecycleBreadcrumb,
+    captureException: captureLifecycleException,
+    logError,
+    shutdown: shutdownServer
   });
-  captureLifecycleException(err, {
-    level: 'fatal',
-    tags: {
-      phase: 'uncaughtException'
-    }
-  });
-  logError('PROCESS', 'uncaught exception:', err);
-  shutdownServer('uncaughtException', 1);
 });
 process.on('unhandledRejection', (reason) => {
-  addLifecycleBreadcrumb('unhandled rejection', {
-    reason: reason instanceof Error ? reason.message : String(reason)
-  }, {
-    category: 'oo-editors.process',
-    level: 'error'
+  handleProcessFailure('unhandledRejection', reason, {
+    addBreadcrumb: addLifecycleBreadcrumb,
+    captureException: captureLifecycleException,
+    logError,
+    shutdown: shutdownServer
   });
-  captureLifecycleException(reason, {
-    level: 'fatal',
-    tags: {
-      phase: 'unhandledRejection'
-    }
-  });
-  logError('PROCESS', 'unhandled rejection:', reason);
-  shutdownServer('unhandledRejection', 1);
 });
 
 // API Endpoint: Health check
