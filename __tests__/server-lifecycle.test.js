@@ -53,6 +53,29 @@ function waitForChild(child, timeoutMs = 2000) {
   });
 }
 
+function createBrokenPipeProbe(fixturePath) {
+  if (process.platform === 'win32') {
+    const quotedFixturePath = fixturePath.replace(/'/g, "''");
+    return {
+      command: 'powershell.exe',
+      args: [
+        '-NoProfile',
+        '-Command',
+        `node '${quotedFixturePath}' stdout-broken | Select-Object -First 1 | Out-Null; exit $LASTEXITCODE`
+      ]
+    };
+  }
+
+  const shellPath = process.env.SHELL || '/bin/zsh';
+  return {
+    command: shellPath,
+    args: [
+      '-lc',
+      `set -o pipefail; node ${JSON.stringify(fixturePath)} stdout-broken | head -n 1 >/dev/null`
+    ]
+  };
+}
+
 describe('isBrokenPipeError', () => {
   test('detects common broken-pipe shapes', () => {
     expect(isBrokenPipeError(createBrokenPipeError())).toBe(true);
@@ -166,9 +189,8 @@ describe('handleProcessFailure', () => {
 describe('broken pipe integration', () => {
   test('exits cleanly after stdout closes', async () => {
     const fixturePath = path.join(process.cwd(), '__tests__', 'fixtures', 'stdio-lifecycle-child.js');
-    const shellPath = process.env.SHELL || '/bin/zsh';
-    const shellCommand = `set -o pipefail; node ${JSON.stringify(fixturePath)} stdout-broken | head -n 1 >/dev/null`;
-    const child = spawn(shellPath, ['-lc', shellCommand], {
+    const probe = createBrokenPipeProbe(fixturePath);
+    const child = spawn(probe.command, probe.args, {
       cwd: process.cwd(),
       stdio: ['ignore', 'pipe', 'pipe']
     });
