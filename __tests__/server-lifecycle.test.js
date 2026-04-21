@@ -15,10 +15,15 @@ function createBrokenPipeError() {
   return error;
 }
 
-function waitForChild(child, timeoutMs = 2000) {
+function runBrokenPipeFixture(fixturePath, timeoutMs = 2000) {
   return new Promise((resolve, reject) => {
+    const child = spawn('node', [fixturePath, 'stdout-broken'], {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
     let stdout = '';
     let stderr = '';
+    let closedStdout = false;
     let settled = false;
 
     const timeout = setTimeout(() => {
@@ -26,8 +31,19 @@ function waitForChild(child, timeoutMs = 2000) {
       reject(new Error(`child timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
+    function closeStdoutAfterFirstLine() {
+      if (closedStdout || !stdout.includes('\n')) {
+        return;
+      }
+
+      closedStdout = true;
+      child.stdout.pause();
+      child.stdout.destroy();
+    }
+
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
+      closeStdoutAfterFirstLine();
     });
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
@@ -42,43 +58,15 @@ function waitForChild(child, timeoutMs = 2000) {
       reject(error);
     });
 
-    child.on('exit', (code, signal) => {
+    child.on('close', (code, signal) => {
       if (settled) {
         return;
       }
       settled = true;
       clearTimeout(timeout);
-      resolve({ code, signal, stdout, stderr });
+      resolve({ code, signal, stdout, stderr, closedStdout });
     });
   });
-}
-
-function createBrokenPipeProbe(fixturePath, options = {}) {
-  const platform = options.platform || process.platform;
-  const env = options.env || process.env;
-  const isWindowsPath = /^[A-Za-z]:\\/.test(fixturePath);
-  const isWindows = platform === 'win32' || env.OS === 'Windows_NT' || isWindowsPath;
-
-  if (isWindows) {
-    const quotedFixturePath = fixturePath.replace(/'/g, "''");
-    return {
-      command: 'powershell.exe',
-      args: [
-        '-NoProfile',
-        '-Command',
-        `node '${quotedFixturePath}' stdout-broken | Select-Object -First 1 | Out-Null; exit $LASTEXITCODE`
-      ]
-    };
-  }
-
-  const shellPath = env.SHELL || '/bin/zsh';
-  return {
-    command: shellPath,
-    args: [
-      '-lc',
-      `set -o pipefail; node ${JSON.stringify(fixturePath)} stdout-broken | head -n 1 >/dev/null`
-    ]
-  };
 }
 
 describe('isBrokenPipeError', () => {
@@ -91,44 +79,6 @@ describe('isBrokenPipeError', () => {
   test('ignores unrelated errors', () => {
     expect(isBrokenPipeError(new Error('permission denied'))).toBe(false);
     expect(isBrokenPipeError({ code: 'ENOENT' })).toBe(false);
-  });
-});
-
-describe('createBrokenPipeProbe', () => {
-  test('uses a PowerShell pipeline for Windows probes', () => {
-    const probe = createBrokenPipeProbe('D:\\repo\\__tests__\\fixtures\\stdio-lifecycle-child.js', {
-      platform: 'win32',
-      env: {}
-    });
-
-    expect(probe.command).toBe('powershell.exe');
-    expect(probe.args).toEqual([
-      '-NoProfile',
-      '-Command',
-      "node 'D:\\repo\\__tests__\\fixtures\\stdio-lifecycle-child.js' stdout-broken | Select-Object -First 1 | Out-Null; exit $LASTEXITCODE"
-    ]);
-  });
-
-  test('falls back to Windows probe when the environment reports Windows_NT', () => {
-    const probe = createBrokenPipeProbe('/repo/__tests__/fixtures/stdio-lifecycle-child.js', {
-      platform: 'linux',
-      env: { OS: 'Windows_NT' }
-    });
-
-    expect(probe.command).toBe('powershell.exe');
-  });
-
-  test('uses a shell pipeline on Unix-like platforms', () => {
-    const probe = createBrokenPipeProbe('/repo/__tests__/fixtures/stdio-lifecycle-child.js', {
-      platform: 'linux',
-      env: { SHELL: '/bin/bash' }
-    });
-
-    expect(probe.command).toBe('/bin/bash');
-    expect(probe.args).toEqual([
-      '-lc',
-      'set -o pipefail; node "/repo/__tests__/fixtures/stdio-lifecycle-child.js" stdout-broken | head -n 1 >/dev/null'
-    ]);
   });
 });
 
@@ -232,13 +182,9 @@ describe('handleProcessFailure', () => {
 describe('broken pipe integration', () => {
   test('exits cleanly after stdout closes', async () => {
     const fixturePath = path.join(process.cwd(), '__tests__', 'fixtures', 'stdio-lifecycle-child.js');
-    const probe = createBrokenPipeProbe(fixturePath);
-    const child = spawn(probe.command, probe.args, {
-      cwd: process.cwd(),
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    const result = await waitForChild(child);
+    const result = await runBrokenPipeFixture(fixturePath);
+    expect(result.closedStdout).toBe(true);
+    expect(result.stdout.startsWith('first\n')).toBe(true);
     expect(result.code).toBe(0);
     expect(result.stderr).toContain('shutdown:stdout-epipe:0');
   });
