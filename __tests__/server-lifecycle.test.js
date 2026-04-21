@@ -53,8 +53,13 @@ function waitForChild(child, timeoutMs = 2000) {
   });
 }
 
-function createBrokenPipeProbe(fixturePath) {
-  if (process.platform === 'win32') {
+function createBrokenPipeProbe(fixturePath, options = {}) {
+  const platform = options.platform || process.platform;
+  const env = options.env || process.env;
+  const isWindowsPath = /^[A-Za-z]:\\/.test(fixturePath);
+  const isWindows = platform === 'win32' || env.OS === 'Windows_NT' || isWindowsPath;
+
+  if (isWindows) {
     const quotedFixturePath = fixturePath.replace(/'/g, "''");
     return {
       command: 'powershell.exe',
@@ -66,7 +71,7 @@ function createBrokenPipeProbe(fixturePath) {
     };
   }
 
-  const shellPath = process.env.SHELL || '/bin/zsh';
+  const shellPath = env.SHELL || '/bin/zsh';
   return {
     command: shellPath,
     args: [
@@ -86,6 +91,44 @@ describe('isBrokenPipeError', () => {
   test('ignores unrelated errors', () => {
     expect(isBrokenPipeError(new Error('permission denied'))).toBe(false);
     expect(isBrokenPipeError({ code: 'ENOENT' })).toBe(false);
+  });
+});
+
+describe('createBrokenPipeProbe', () => {
+  test('uses a PowerShell pipeline for Windows probes', () => {
+    const probe = createBrokenPipeProbe('D:\\repo\\__tests__\\fixtures\\stdio-lifecycle-child.js', {
+      platform: 'win32',
+      env: {}
+    });
+
+    expect(probe.command).toBe('powershell.exe');
+    expect(probe.args).toEqual([
+      '-NoProfile',
+      '-Command',
+      "node 'D:\\repo\\__tests__\\fixtures\\stdio-lifecycle-child.js' stdout-broken | Select-Object -First 1 | Out-Null; exit $LASTEXITCODE"
+    ]);
+  });
+
+  test('falls back to Windows probe when the environment reports Windows_NT', () => {
+    const probe = createBrokenPipeProbe('/repo/__tests__/fixtures/stdio-lifecycle-child.js', {
+      platform: 'linux',
+      env: { OS: 'Windows_NT' }
+    });
+
+    expect(probe.command).toBe('powershell.exe');
+  });
+
+  test('uses a shell pipeline on Unix-like platforms', () => {
+    const probe = createBrokenPipeProbe('/repo/__tests__/fixtures/stdio-lifecycle-child.js', {
+      platform: 'linux',
+      env: { SHELL: '/bin/bash' }
+    });
+
+    expect(probe.command).toBe('/bin/bash');
+    expect(probe.args).toEqual([
+      '-lc',
+      'set -o pipefail; node "/repo/__tests__/fixtures/stdio-lifecycle-child.js" stdout-broken | head -n 1 >/dev/null'
+    ]);
   });
 });
 
