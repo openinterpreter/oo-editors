@@ -13,6 +13,11 @@ const {
   flushSentry
 } = require('./sentry');
 const {
+  createStdIoState,
+  handleProcessFailure,
+  handleStdIoStreamError
+} = require('./server-lifecycle');
+const {
   getX2TFormatCode,
   getOutputFormatInfo,
   generateFileHash,
@@ -29,9 +34,14 @@ const {
 
 const LOG_NAMESPACE = 'oo-editors';
 const SHUTDOWN_FORCE_EXIT_TIMEOUT_MS = 5000;
-let stdoutBrokenPipe = false;
-let stderrBrokenPipe = false;
-let brokenPipeTelemetrySent = false;
+const stdioState = createStdIoState({
+  onBrokenPipeTelemetry: (details) => {
+    addLifecycleBreadcrumb('stdio broken pipe', details, {
+      category: 'oo-editors.process',
+      level: 'warning'
+    });
+  }
+});
 
 function normalizeLogScope(scope) {
   return Array.isArray(scope) ? scope : [scope];
@@ -41,93 +51,8 @@ function formatLogScope(scope) {
   return `[${LOG_NAMESPACE}:${normalizeLogScope(scope).join(':')}]`;
 }
 
-function isBrokenPipeError(error) {
-  const message = error && typeof error.message === 'string' ? error.message : '';
-  return Boolean(error && (
-    error.code === 'EPIPE'
-    || error.errno === 'EPIPE'
-    || message.includes('EPIPE')
-  ));
-}
-
-function getErrorOwnProperties(error) {
-  if (!error || typeof error !== 'object') {
-    return {};
-  }
-
-  const details = {};
-  for (const key of Object.getOwnPropertyNames(error)) {
-    details[key] = error[key];
-  }
-
-  return details;
-}
-
-function markBrokenPipeStream(streamName, error) {
-  if (streamName === 'stdout') {
-    stdoutBrokenPipe = true;
-  } else {
-    stderrBrokenPipe = true;
-  }
-
-  if (brokenPipeTelemetrySent) {
-    return;
-  }
-
-  brokenPipeTelemetrySent = true;
-  const details = {
-    event: 'stdio broken pipe',
-    stream: streamName,
-    timestamp: new Date().toISOString(),
-    pid: process.pid,
-    ppid: process.ppid,
-    runtime: typeof Bun !== 'undefined' && typeof Bun.version === 'string'
-      ? `bun-${Bun.version}`
-      : `node-${process.versions.node}`,
-    brokenPipeState: {
-      stdoutBrokenPipe,
-      stderrBrokenPipe,
-      brokenPipeTelemetrySent
-    },
-    errorType: error && error.constructor ? error.constructor.name : typeof error,
-    error: {
-      name: error && error.name ? error.name : 'Error',
-      message: error && error.message ? error.message : 'write EPIPE',
-      code: error && error.code ? error.code : 'EPIPE',
-      errno: error && error.errno ? error.errno : 'EPIPE',
-      syscall: error && error.syscall ? error.syscall : null,
-      stack: error && error.stack ? error.stack : null,
-      ownProperties: getErrorOwnProperties(error)
-    }
-  };
-
-  addLifecycleBreadcrumb('stdio broken pipe', details, {
-    category: 'oo-editors.process',
-    level: 'warning'
-  });
-}
-
 function writeLog(method, streamName, scope, message, args) {
-  if (streamName === 'stdout' && stdoutBrokenPipe) {
-    return;
-  }
-
-  if (streamName === 'stderr' && stderrBrokenPipe) {
-    return;
-  }
-
-  const formatted = `${formatLogScope(scope)} ${message}`;
-
-  try {
-    console[method](formatted, ...args);
-  } catch (error) {
-    if (isBrokenPipeError(error)) {
-      markBrokenPipeStream(streamName, error);
-      return;
-    }
-
-    throw error;
-  }
+  stdioState.writeLog(method, streamName, `${formatLogScope(scope)} ${message}`, args, console);
 }
 
 function logInfo(scope, message, ...args) {
@@ -421,35 +346,21 @@ function shutdownServer(reason, exitCode) {
   });
 }
 
-function handleStdIoStreamError(streamName, error) {
-  if (isBrokenPipeError(error)) {
-    markBrokenPipeStream(streamName, error);
-    shutdownServer(`${streamName}-epipe`, 0);
-    return;
-  }
-
-  addLifecycleBreadcrumb('stdio stream error', {
-    stream: streamName,
-    message: error && error.message ? error.message : String(error)
-  }, {
-    category: 'oo-editors.process',
-    level: 'error'
-  });
-  captureLifecycleException(error, {
-    level: 'error',
-    tags: {
-      phase: 'stdio',
-      stream: streamName
-    }
-  });
-  shutdownServer(`${streamName}-error`, 1);
-}
-
 process.stdout.on('error', (error) => {
-  handleStdIoStreamError('stdout', error);
+  handleStdIoStreamError('stdout', error, {
+    stdioState,
+    addBreadcrumb: addLifecycleBreadcrumb,
+    captureException: captureLifecycleException,
+    shutdown: shutdownServer
+  });
 });
 process.stderr.on('error', (error) => {
-  handleStdIoStreamError('stderr', error);
+  handleStdIoStreamError('stderr', error, {
+    stdioState,
+    addBreadcrumb: addLifecycleBreadcrumb,
+    captureException: captureLifecycleException,
+    shutdown: shutdownServer
+  });
 });
 process.on('SIGTERM', () => shutdownServer('SIGTERM', 0));
 process.on('SIGINT', () => shutdownServer('SIGINT', 0));
@@ -461,49 +372,20 @@ process.on('exit', (code) => {
   logInfo('PROCESS', `exit with code ${code}`);
 });
 process.on('uncaughtException', (err) => {
-  if (isBrokenPipeError(err)) {
-    markBrokenPipeStream('stdout', err);
-    shutdownServer('uncaughtException-epipe', 0);
-    return;
-  }
-
-  addLifecycleBreadcrumb('uncaught exception', {
-    message: err.message,
-    name: err.name
-  }, {
-    category: 'oo-editors.process',
-    level: 'error'
+  handleProcessFailure('uncaughtException', err, {
+    addBreadcrumb: addLifecycleBreadcrumb,
+    captureException: captureLifecycleException,
+    logError,
+    shutdown: shutdownServer
   });
-  captureLifecycleException(err, {
-    level: 'fatal',
-    tags: {
-      phase: 'uncaughtException'
-    }
-  });
-  logError('PROCESS', 'uncaught exception:', err);
-  shutdownServer('uncaughtException', 1);
 });
 process.on('unhandledRejection', (reason) => {
-  if (isBrokenPipeError(reason)) {
-    markBrokenPipeStream('stdout', reason);
-    shutdownServer('unhandledRejection-epipe', 0);
-    return;
-  }
-
-  addLifecycleBreadcrumb('unhandled rejection', {
-    reason: reason instanceof Error ? reason.message : String(reason)
-  }, {
-    category: 'oo-editors.process',
-    level: 'error'
+  handleProcessFailure('unhandledRejection', reason, {
+    addBreadcrumb: addLifecycleBreadcrumb,
+    captureException: captureLifecycleException,
+    logError,
+    shutdown: shutdownServer
   });
-  captureLifecycleException(reason, {
-    level: 'fatal',
-    tags: {
-      phase: 'unhandledRejection'
-    }
-  });
-  logError('PROCESS', 'unhandled rejection:', reason);
-  shutdownServer('unhandledRejection', 1);
 });
 
 // API Endpoint: Health check
