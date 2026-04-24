@@ -772,6 +772,21 @@ See common.js and desktop-stub.js headers for related documentation.
 
                                     var iframeWindow = iframe.contentWindow;
                                     var api = iframeWindow.Asc && iframeWindow.Asc.editor;
+                                    var selectionStream = null;
+
+                                    if (api && window.DesktopStubUtils && window.DesktopStubUtils.createSelectionStream) {
+                                        selectionStream = window.DesktopStubUtils.createSelectionStream({
+                                            api: api,
+                                            iframeWindow: iframeWindow,
+                                            parentWindow: window.parent,
+                                            doctype: doctype,
+                                            filePath: window._ONLYOFFICE_FILEPATH,
+                                            filename: window._ONLYOFFICE_FILENAME
+                                        });
+                                        console.log('[SELECTION] Selection stream initialized for doctype:', doctype);
+                                    } else {
+                                        console.log('[SELECTION] Selection stream unavailable');
+                                    }
 
                                     // Restore pending scroll position
                                     if (pendingScrollState && api) {
@@ -829,6 +844,10 @@ See common.js and desktop-stub.js headers for related documentation.
                                         // Track cell selection changes
                                         if (api.asc_registerCallback) {
                                             api.asc_registerCallback('asc_onSelectionChanged', function(cellInfo) {
+                                                if (selectionStream) {
+                                                    selectionStream.emitCell(cellInfo);
+                                                }
+
                                                 // Get cell reference from the API directly instead of cellInfo
                                                 var cellRef = null;
 
@@ -896,6 +915,11 @@ See common.js and desktop-stub.js headers for related documentation.
                                                     });
                                                 }
                                             });
+                                            api.asc_registerCallback('asc_onSelectionNameChanged', function() {
+                                                if (selectionStream) {
+                                                    selectionStream.emitCell();
+                                                }
+                                            });
                                             console.log('[SCROLL] Registered cell selection callback');
                                         }
                                     } else if (doctype === 'word' && api) {
@@ -907,9 +931,44 @@ See common.js and desktop-stub.js headers for related documentation.
                                                     page: pageNum + 1 // 1-indexed for URL
                                                 });
                                             });
+                                            api.asc_registerCallback('asc_onSelectionEnd', function() {
+                                                if (selectionStream) {
+                                                    selectionStream.emitDocument();
+                                                }
+                                            });
+                                            api.asc_registerCallback('asc_onCursorMove', function() {
+                                                if (selectionStream) {
+                                                    selectionStream.emitDocument();
+                                                }
+                                            });
+                                            api.asc_registerCallback('asc_onFocusObject', function(focusedElements) {
+                                                if (selectionStream) {
+                                                    selectionStream.emitDocument(focusedElements);
+                                                }
+                                            });
                                             console.log('[SCROLL] Registered page change callback');
+                                            console.log('[SELECTION] Registered word selection callbacks');
                                         }
                                     } else if (doctype === 'slide' && api) {
+                                        if (api.asc_registerCallback) {
+                                            api.asc_registerCallback('asc_onSelectionEnd', function() {
+                                                if (selectionStream) {
+                                                    selectionStream.emitDocument();
+                                                }
+                                            });
+                                            api.asc_registerCallback('asc_onCursorMove', function() {
+                                                if (selectionStream) {
+                                                    selectionStream.emitDocument();
+                                                }
+                                            });
+                                            api.asc_registerCallback('asc_onFocusObject', function(focusedElements) {
+                                                if (selectionStream) {
+                                                    selectionStream.emitDocument(focusedElements);
+                                                }
+                                            });
+                                            console.log('[SELECTION] Registered slide selection callbacks');
+                                        }
+
                                         // Track slide changes via polling since callbacks may not fire
                                         var lastSlide = -1;
                                         function pollCurrentSlide() {
