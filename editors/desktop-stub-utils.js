@@ -479,6 +479,14 @@ function stripImageUrlNoise(imageUrl) {
   return toSelectionString(imageUrl).split('?')[0].split('#')[0];
 }
 
+// NOTE(victor): ONLYOFFICE media identifiers in this repo are URL-style paths,
+// not native OS filesystem paths. Evidence: sdkjs/common/editorscommon.js
+// defines DocumentUrls.mediaPrefix as 'media/'; sdkjs/common/wordcopypaste.js
+// emits _local_url as 'media/' + _url; sdkjs/word/api.js maps offline images
+// with this.documentUrl + 'media/' + localUrl; editors/offline-loader-proper.html
+// preloads cache keys as media/name, ./media/name, filename/media/name, and
+// docBaseUrl/media/name. Keep slash-based matching intentional unless those
+// sources start emitting Windows backslash paths.
 function getMediaFilenameFromImageUrl(imageUrl) {
   var cleanedUrl = stripImageUrlNoise(imageUrl);
   if (!cleanedUrl) {
