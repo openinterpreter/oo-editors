@@ -250,6 +250,433 @@ function extractBlobUrl(path) {
   return blobMatch ? blobMatch[0] : null;
 }
 
+var SELECTION_CHANGED_MESSAGE_TYPE = 'ONLYOFFICE_SELECTION_CHANGED';
+
+function isPrimitiveSelectionValue(value) {
+  return value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean';
+}
+
+function toSelectionString(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return String(value);
+}
+
+function readSelectionValue(source, names) {
+  if (!source) {
+    return undefined;
+  }
+
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    try {
+      var value = source[name];
+      if (typeof value === 'function') {
+        value = value.call(source);
+      }
+      if (value !== undefined && value !== null) {
+        return value;
+      }
+    } catch (err) {}
+  }
+
+  return undefined;
+}
+
+function readSelectionFunction(source, name, args) {
+  if (!source || typeof source[name] !== 'function') {
+    return undefined;
+  }
+
+  try {
+    return source[name].apply(source, args || []);
+  } catch (err) {
+    return undefined;
+  }
+}
+
+function extractSelectedText(api) {
+  var selectedText = readSelectionFunction(api, 'asc_GetSelectedText', [false]);
+  return toSelectionString(selectedText);
+}
+
+function getCellText(cellInfo) {
+  var value = readSelectionValue(cellInfo, [
+    'text',
+    'Text',
+    'value',
+    'Value',
+    'asc_getObjectValue',
+    'asc_getText',
+    'asc_getValue',
+    'getText',
+    'getValue'
+  ]);
+  return value === undefined || value === null ? null : toSelectionString(value);
+}
+
+function getCellName(cellInfo) {
+  var value = readSelectionValue(cellInfo, [
+    'name',
+    'Name',
+    'cell',
+    'cellRef',
+    'asc_getName',
+    'getName'
+  ]);
+  return value === undefined || value === null ? null : toSelectionString(value);
+}
+
+function columnIndexToName(index) {
+  var col = Number(index);
+  if (!isFinite(col) || col < 0) {
+    return '';
+  }
+
+  var colStr = '';
+  do {
+    colStr = String.fromCharCode(65 + (col % 26)) + colStr;
+    col = Math.floor(col / 26) - 1;
+  } while (col >= 0);
+  return colStr;
+}
+
+function getSelectionRangeCellName(api, iframeWindow) {
+  if (!api || !iframeWindow || !iframeWindow.AscCommonExcel) {
+    return null;
+  }
+
+  var wbModel = api.wbModel || readSelectionFunction(api, 'asc_getModel');
+  if (!wbModel) {
+    return null;
+  }
+
+  var activeWs = readSelectionFunction(wbModel, 'getActiveWs');
+  if (!activeWs || !activeWs.selectionRange) {
+    return null;
+  }
+
+  var range = readSelectionFunction(activeWs.selectionRange, 'getLast');
+  if (!range || range.c1 === undefined || range.r1 === undefined) {
+    return null;
+  }
+
+  var columnName = columnIndexToName(range.c1);
+  if (!columnName) {
+    return null;
+  }
+  return columnName + (Number(range.r1) + 1);
+}
+
+function getCellReference(api, iframeWindow, eventCellInfo) {
+  var info = readSelectionFunction(api, 'asc_getCellInfo') || eventCellInfo;
+  var cellRef = getCellName(info) || getCellName(eventCellInfo);
+
+  if (!cellRef) {
+    cellRef = readSelectionFunction(api, 'asc_getActiveRangeStr');
+  }
+
+  if (!cellRef && api && api.wb) {
+    var ws = readSelectionFunction(api.wb, 'getWorksheet');
+    if (ws) {
+      cellRef = readSelectionFunction(ws, 'getSelectionRangeStr');
+      if (!cellRef && ws.model && ws.model.selectionRange) {
+        cellRef = readSelectionFunction(ws.model.selectionRange, 'getName');
+      }
+    }
+  }
+
+  if (!cellRef) {
+    cellRef = getSelectionRangeCellName(api, iframeWindow);
+  }
+
+  return cellRef === undefined || cellRef === null ? null : toSelectionString(cellRef);
+}
+
+function buildCellSelectionPayload(api, iframeWindow, eventCellInfo) {
+  var info = readSelectionFunction(api, 'asc_getCellInfo') || eventCellInfo || null;
+  var cellRef = getCellReference(api, iframeWindow, eventCellInfo);
+  var range = readSelectionFunction(api, 'asc_getActiveRangeStr', [undefined, false, true]);
+  var activeCell = readSelectionFunction(api, 'asc_getActiveRangeStr', [undefined, true, true]);
+
+  if (range === undefined || range === null || range === '') {
+    range = cellRef;
+  }
+  if (activeCell === undefined || activeCell === null || activeCell === '') {
+    activeCell = cellRef;
+  }
+
+  var sheetIndex = readSelectionFunction(api, 'asc_getActiveWorksheetIndex');
+  if (sheetIndex === undefined || sheetIndex === null) {
+    sheetIndex = readSelectionFunction(api, 'getActiveWorksheetIndex');
+  }
+  if (sheetIndex === undefined || sheetIndex === null) {
+    sheetIndex = 0;
+  }
+
+  var text = getCellText(info);
+  if (text === null) {
+    text = getCellText(eventCellInfo);
+  }
+
+  return {
+    kind: 'cell',
+    cell: cellRef,
+    range: range === undefined || range === null ? null : toSelectionString(range),
+    activeCell: activeCell === undefined || activeCell === null ? null : toSelectionString(activeCell),
+    sheetIndex: sheetIndex,
+    text: text
+  };
+}
+
+function getSelectedElements(api, focusedElements) {
+  if (Array.isArray(focusedElements)) {
+    return focusedElements;
+  }
+
+  var selectedElements = readSelectionFunction(api, 'getSelectedElements', [true]);
+  return Array.isArray(selectedElements) ? selectedElements : [];
+}
+
+function getImageUrlFromElement(element, seenElements) {
+  seenElements = seenElements || [];
+  if (!element || seenElements.indexOf(element) !== -1) {
+    return null;
+  }
+  seenElements.push(element);
+
+  var value = readSelectionValue(element, [
+    'ImageUrl',
+    'imageUrl',
+    'Url',
+    'url',
+    'src',
+    'Src',
+    'Source',
+    'source',
+    'getImageUrl',
+    'get_ImageUrl',
+    'asc_getImageUrl',
+    'getUrl'
+  ]);
+  if (value !== undefined && value !== null) {
+    return toSelectionString(value);
+  }
+
+  var nestedValue = readSelectionValue(element, ['Value', 'value', 'asc_getObjectValue', 'getValue']);
+  if (nestedValue && typeof nestedValue === 'object') {
+    return getImageUrlFromElement(nestedValue, seenElements);
+  }
+
+  return null;
+}
+
+function stripImageUrlNoise(imageUrl) {
+  return toSelectionString(imageUrl).split('?')[0].split('#')[0];
+}
+
+// NOTE(victor): ONLYOFFICE media identifiers in this repo are URL-style paths,
+// not native OS filesystem paths. Evidence: sdkjs/common/editorscommon.js
+// defines DocumentUrls.mediaPrefix as 'media/'; sdkjs/common/wordcopypaste.js
+// emits _local_url as 'media/' + _url; sdkjs/word/api.js maps offline images
+// with this.documentUrl + 'media/' + localUrl; editors/offline-loader-proper.html
+// preloads cache keys as media/name, ./media/name, filename/media/name, and
+// docBaseUrl/media/name. Keep slash-based matching intentional unless those
+// sources start emitting Windows backslash paths.
+function getMediaFilenameFromImageUrl(imageUrl) {
+  var cleanedUrl = stripImageUrlNoise(imageUrl);
+  if (!cleanedUrl) {
+    return '';
+  }
+
+  if (cleanedUrl.indexOf('/media/') !== -1 || cleanedUrl.indexOf('media/') === 0 || cleanedUrl.indexOf('./media/') === 0) {
+    return extractMediaFilename(cleanedUrl);
+  }
+
+  if (cleanedUrl.indexOf('/') === -1 && isImageFile(cleanedUrl)) {
+    return cleanedUrl;
+  }
+
+  return '';
+}
+
+function normalizeSelectedElementImageUrl(imageUrl, mediaContext) {
+  if (!imageUrl) {
+    return null;
+  }
+
+  var cleanedUrl = stripImageUrlNoise(imageUrl);
+  if (/^https?:\/\//i.test(cleanedUrl) || /^data:/i.test(cleanedUrl) || /^blob:/i.test(cleanedUrl)) {
+    return cleanedUrl;
+  }
+
+  var filename = getMediaFilenameFromImageUrl(cleanedUrl);
+  if (!filename) {
+    return cleanedUrl;
+  }
+
+  mediaContext = mediaContext || {};
+  if (mediaContext.baseUrl && mediaContext.fileHash) {
+    return buildMediaUrl(mediaContext.baseUrl, mediaContext.fileHash, filename);
+  }
+
+  if (mediaContext.docBaseUrl) {
+    return mediaContext.docBaseUrl.replace(/\/$/, '') + '/media/' + encodeURIComponent(filename);
+  }
+
+  return cleanedUrl;
+}
+
+function serializeSelectedElements(elements, mediaContext) {
+  if (!Array.isArray(elements)) {
+    return [];
+  }
+
+  var serialized = [];
+  for (var i = 0; i < elements.length; i++) {
+    var element = elements[i];
+    if (!element) {
+      continue;
+    }
+
+    var type = readSelectionValue(element, [
+      'Type',
+      'type',
+      'ObjectType',
+      'objectType',
+      'asc_getObjectType',
+      'getType',
+      'get_Type',
+      'asc_getType'
+    ]);
+    var value = readSelectionValue(element, ['Value', 'value', 'asc_getObjectValue', 'getValue']);
+    var rawImageUrl = getImageUrlFromElement(element);
+    var imageUrl = normalizeSelectedElementImageUrl(rawImageUrl, mediaContext);
+    var imageName = getMediaFilenameFromImageUrl(rawImageUrl);
+    var objectId = readSelectionValue(element, [
+      'Id',
+      'id',
+      'ObjectId',
+      'objectId',
+      'getId',
+      'get_Id'
+    ]);
+
+    var item = {};
+    if (isPrimitiveSelectionValue(type)) {
+      item.type = type;
+    }
+    if (isPrimitiveSelectionValue(value)) {
+      item.value = value;
+    }
+    if (isPrimitiveSelectionValue(objectId)) {
+      item.id = objectId;
+    }
+    if (imageUrl) {
+      item.imageUrl = imageUrl;
+    }
+    if (imageName) {
+      item.imageName = imageName;
+    }
+
+    var typeText = item.type === undefined || item.type === null ? '' : String(item.type).toLowerCase();
+    item.hasImage = !!imageUrl || typeText.indexOf('image') !== -1 || typeText.indexOf('picture') !== -1;
+
+    serialized.push(item);
+  }
+
+  return serialized;
+}
+
+function buildDocumentSelectionPayload(api, focusedElements, mediaContext) {
+  var text = extractSelectedText(api);
+  var objects = serializeSelectedElements(getSelectedElements(api, focusedElements), mediaContext);
+
+  if (text) {
+    var textPayload = {
+      kind: 'text',
+      text: text
+    };
+    if (objects.length > 0) {
+      textPayload.objects = objects;
+    }
+    return textPayload;
+  }
+
+  if (objects.length > 0) {
+    var hasImage = objects.some(function(object) { return object.hasImage; });
+    return {
+      kind: hasImage ? 'image' : 'object',
+      objects: objects
+    };
+  }
+
+  return {
+    kind: 'empty',
+    text: ''
+  };
+}
+
+function buildSelectionMessage(meta, selection, timestamp) {
+  meta = meta || {};
+  return {
+    type: SELECTION_CHANGED_MESSAGE_TYPE,
+    filePath: meta.filePath || meta.filepath || '',
+    filename: meta.filename || '',
+    doctype: meta.doctype || '',
+    selection: selection || { kind: 'empty', text: '' },
+    timestamp: timestamp === undefined ? Date.now() : timestamp
+  };
+}
+
+function createSelectionStream(options) {
+  options = options || {};
+  var parentWindow = options.parentWindow;
+  var targetOrigin = options.targetOrigin || '*';
+  var now = typeof options.now === 'function' ? options.now : function() { return Date.now(); };
+  var api = options.api || null;
+  var iframeWindow = options.iframeWindow || null;
+  var meta = {
+    doctype: options.doctype || '',
+    filePath: options.filePath || options.filepath || '',
+    filename: options.filename || ''
+  };
+  var mediaContext = {
+    baseUrl: options.baseUrl || '',
+    fileHash: options.fileHash || '',
+    docBaseUrl: options.docBaseUrl || ''
+  };
+  var lastPayloadKey = null;
+
+  function emit(selection) {
+    var payloadKey = JSON.stringify(selection || null);
+    if (payloadKey === lastPayloadKey) {
+      return null;
+    }
+    lastPayloadKey = payloadKey;
+
+    var message = buildSelectionMessage(meta, selection, now());
+    if (parentWindow && typeof parentWindow.postMessage === 'function') {
+      parentWindow.postMessage(message, targetOrigin);
+    }
+    return message;
+  }
+
+  return {
+    emit: emit,
+    emitCell: function(cellInfo) {
+      return emit(buildCellSelectionPayload(api, iframeWindow, cellInfo));
+    },
+    emitDocument: function(focusedElements) {
+      return emit(buildDocumentSelectionPayload(api, focusedElements, mediaContext));
+    }
+  };
+}
+
 // UMD export - works in browser (global) and Node.js/Bun (CommonJS)
 (function(root, factory) {
   var exports = {
@@ -268,7 +695,15 @@ function extractBlobUrl(path) {
     isImageFile: isImageFile,
     extractMediaFilename: extractMediaFilename,
     buildMediaUrl: buildMediaUrl,
-    extractBlobUrl: extractBlobUrl
+    extractBlobUrl: extractBlobUrl,
+    SELECTION_CHANGED_MESSAGE_TYPE: SELECTION_CHANGED_MESSAGE_TYPE,
+    extractSelectedText: extractSelectedText,
+    serializeSelectedElements: serializeSelectedElements,
+    normalizeSelectedElementImageUrl: normalizeSelectedElementImageUrl,
+    buildCellSelectionPayload: buildCellSelectionPayload,
+    buildDocumentSelectionPayload: buildDocumentSelectionPayload,
+    buildSelectionMessage: buildSelectionMessage,
+    createSelectionStream: createSelectionStream
   };
   
   if (typeof module !== 'undefined' && module.exports) {

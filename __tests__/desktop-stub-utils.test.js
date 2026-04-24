@@ -14,6 +14,14 @@ import {
   extractMediaFilename,
   buildMediaUrl,
   extractBlobUrl,
+  SELECTION_CHANGED_MESSAGE_TYPE,
+  extractSelectedText,
+  serializeSelectedElements,
+  normalizeSelectedElementImageUrl,
+  buildCellSelectionPayload,
+  buildDocumentSelectionPayload,
+  buildSelectionMessage,
+  createSelectionStream,
   FONT_SPRITE_BASE_WIDTH,
   FONT_SPRITE_ROW_HEIGHT
 } from '../editors/desktop-stub-utils.js';
@@ -391,6 +399,243 @@ describe('extractBlobUrl', () => {
     expect(extractBlobUrl('http://localhost:38123/image.png')).toBe(null);
     expect(extractBlobUrl('file:///path/to/image.png')).toBe(null);
     expect(extractBlobUrl('/media/image.png')).toBe(null);
+  });
+});
+
+describe('selection streaming utilities', () => {
+  test('extractSelectedText reads Word and slide selected text safely', () => {
+    const api = {
+      asc_GetSelectedText(includeHidden) {
+        expect(includeHidden).toBe(false);
+        return 'selected word text';
+      }
+    };
+
+    expect(extractSelectedText(api)).toBe('selected word text');
+    expect(extractSelectedText({ asc_GetSelectedText() { throw new Error('sdk failure'); } })).toBe('');
+    expect(extractSelectedText(null)).toBe('');
+  });
+
+  test('buildCellSelectionPayload streams active Excel cell, range, text, and sheet index', () => {
+    const api = {
+      asc_getCellInfo() {
+        return {
+          asc_getName() { return 'B2'; },
+          asc_getText() { return 'Quarterly revenue'; }
+        };
+      },
+      asc_getActiveRangeStr(_unused, activeCell) {
+        return activeCell ? 'B2' : 'B2:D4';
+      },
+      asc_getActiveWorksheetIndex() {
+        return 2;
+      }
+    };
+
+    expect(buildCellSelectionPayload(api, {}, null)).toEqual({
+      kind: 'cell',
+      cell: 'B2',
+      range: 'B2:D4',
+      activeCell: 'B2',
+      sheetIndex: 2,
+      text: 'Quarterly revenue'
+    });
+  });
+
+  test('buildCellSelectionPayload falls back to the workbook selection model', () => {
+    const api = {
+      wbModel: {
+        getActiveWs() {
+          return {
+            selectionRange: {
+              getLast() {
+                return { c1: 26, r1: 9 };
+              }
+            }
+          };
+        }
+      },
+      getActiveWorksheetIndex() {
+        return 1;
+      }
+    };
+
+    expect(buildCellSelectionPayload(api, { AscCommonExcel: {} }, null)).toEqual({
+      kind: 'cell',
+      cell: 'AA10',
+      range: 'AA10',
+      activeCell: 'AA10',
+      sheetIndex: 1,
+      text: null
+    });
+  });
+
+  test('serializeSelectedElements keeps image metadata JSON-safe and drops raw SDK objects', () => {
+    const rawValue = {
+      imageUrl: 'media/image1.png',
+      cyclic: null
+    };
+    rawValue.cyclic = rawValue;
+
+    const result = serializeSelectedElements([
+      {
+        asc_getType() { return 'Image'; },
+        asc_getObjectValue() { return rawValue; },
+        getId() { return 'object-1'; }
+      }
+    ]);
+
+    expect(result).toEqual([
+      {
+        type: 'Image',
+        id: 'object-1',
+        imageUrl: 'media/image1.png',
+        imageName: 'image1.png',
+        hasImage: true
+      }
+    ]);
+    expect(result[0].value).toBeUndefined();
+    expect(JSON.stringify(result)).toBe('[{"type":"Image","id":"object-1","imageUrl":"media/image1.png","imageName":"image1.png","hasImage":true}]');
+  });
+
+  test('normalizeSelectedElementImageUrl maps relative media names to full server URLs', () => {
+    expect(normalizeSelectedElementImageUrl('image3.png', {
+      baseUrl: 'http://localhost:38123',
+      fileHash: 'abc123'
+    })).toBe('http://localhost:38123/api/media/abc123/image3.png');
+
+    expect(normalizeSelectedElementImageUrl('media/my image.png?cache=1', {
+      baseUrl: 'http://localhost:38123',
+      fileHash: 'abc123'
+    })).toBe('http://localhost:38123/api/media/abc123/my%20image.png');
+
+    expect(normalizeSelectedElementImageUrl('https://example.com/image.png', {
+      baseUrl: 'http://localhost:38123',
+      fileHash: 'abc123'
+    })).toBe('https://example.com/image.png');
+  });
+
+  test('serializeSelectedElements includes full image URL when media context is available', () => {
+    expect(serializeSelectedElements([
+      { type: 'Picture', ImageUrl: 'image3.png' }
+    ], {
+      baseUrl: 'http://localhost:38123',
+      fileHash: '3c1d80c7decce8607bcd62d1787659fa'
+    })).toEqual([
+      {
+        type: 'Picture',
+        imageUrl: 'http://localhost:38123/api/media/3c1d80c7decce8607bcd62d1787659fa/image3.png',
+        imageName: 'image3.png',
+        hasImage: true
+      }
+    ]);
+  });
+
+  test('buildDocumentSelectionPayload prefers selected Word text and includes selected objects', () => {
+    const api = {
+      asc_GetSelectedText() {
+        return 'hello world';
+      },
+      getSelectedElements() {
+        return [{ type: 'Paragraph', value: 'p1' }];
+      }
+    };
+
+    expect(buildDocumentSelectionPayload(api)).toEqual({
+      kind: 'text',
+      text: 'hello world',
+      objects: [
+        {
+          type: 'Paragraph',
+          value: 'p1',
+          hasImage: false
+        }
+      ]
+    });
+  });
+
+  test('buildDocumentSelectionPayload emits image selection when text is empty', () => {
+    const api = {
+      asc_GetSelectedText() {
+        return '';
+      }
+    };
+
+    expect(buildDocumentSelectionPayload(api, [{ type: 'Picture', ImageUrl: 'media/photo.png' }])).toEqual({
+      kind: 'image',
+      objects: [
+        {
+          type: 'Picture',
+          imageUrl: 'media/photo.png',
+          imageName: 'photo.png',
+          hasImage: true
+        }
+      ]
+    });
+  });
+
+  test('buildSelectionMessage includes file identity so all open files can be merged by the host', () => {
+    expect(buildSelectionMessage({
+      doctype: 'word',
+      filePath: '/tmp/report.docx',
+      filename: 'report.docx'
+    }, { kind: 'text', text: 'budget' }, 1234)).toEqual({
+      type: SELECTION_CHANGED_MESSAGE_TYPE,
+      filePath: '/tmp/report.docx',
+      filename: 'report.docx',
+      doctype: 'word',
+      selection: { kind: 'text', text: 'budget' },
+      timestamp: 1234
+    });
+  });
+
+  test('createSelectionStream posts live selection changes and dedupes identical payloads', () => {
+    const posted = [];
+    const parentWindow = {
+      postMessage(message, targetOrigin) {
+        posted.push({ message, targetOrigin });
+      }
+    };
+    const api = {
+      asc_getCellInfo() {
+        return {
+          asc_getName() { return 'C3'; },
+          asc_getText() { return '42'; }
+        };
+      },
+      asc_getActiveWorksheetIndex() {
+        return 0;
+      }
+    };
+    const stream = createSelectionStream({
+      api,
+      parentWindow,
+      doctype: 'cell',
+      filePath: '/tmp/book.xlsx',
+      filename: 'book.xlsx',
+      now: () => 999
+    });
+
+    const first = stream.emitCell();
+    const duplicate = stream.emitCell();
+
+    expect(first).toEqual({
+      type: SELECTION_CHANGED_MESSAGE_TYPE,
+      filePath: '/tmp/book.xlsx',
+      filename: 'book.xlsx',
+      doctype: 'cell',
+      selection: {
+        kind: 'cell',
+        cell: 'C3',
+        range: 'C3',
+        activeCell: 'C3',
+        sheetIndex: 0,
+        text: '42'
+      },
+      timestamp: 999
+    });
+    expect(duplicate).toBe(null);
+    expect(posted).toEqual([{ message: first, targetOrigin: '*' }]);
   });
 });
 
