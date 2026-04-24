@@ -475,7 +475,55 @@ function getImageUrlFromElement(element, seenElements) {
   return null;
 }
 
-function serializeSelectedElements(elements) {
+function stripImageUrlNoise(imageUrl) {
+  return toSelectionString(imageUrl).split('?')[0].split('#')[0];
+}
+
+function getMediaFilenameFromImageUrl(imageUrl) {
+  var cleanedUrl = stripImageUrlNoise(imageUrl);
+  if (!cleanedUrl) {
+    return '';
+  }
+
+  if (cleanedUrl.indexOf('/media/') !== -1 || cleanedUrl.indexOf('media/') === 0 || cleanedUrl.indexOf('./media/') === 0) {
+    return extractMediaFilename(cleanedUrl);
+  }
+
+  if (cleanedUrl.indexOf('/') === -1 && isImageFile(cleanedUrl)) {
+    return cleanedUrl;
+  }
+
+  return '';
+}
+
+function normalizeSelectedElementImageUrl(imageUrl, mediaContext) {
+  if (!imageUrl) {
+    return null;
+  }
+
+  var cleanedUrl = stripImageUrlNoise(imageUrl);
+  if (/^https?:\/\//i.test(cleanedUrl) || /^data:/i.test(cleanedUrl) || /^blob:/i.test(cleanedUrl)) {
+    return cleanedUrl;
+  }
+
+  var filename = getMediaFilenameFromImageUrl(cleanedUrl);
+  if (!filename) {
+    return cleanedUrl;
+  }
+
+  mediaContext = mediaContext || {};
+  if (mediaContext.baseUrl && mediaContext.fileHash) {
+    return buildMediaUrl(mediaContext.baseUrl, mediaContext.fileHash, filename);
+  }
+
+  if (mediaContext.docBaseUrl) {
+    return mediaContext.docBaseUrl.replace(/\/$/, '') + '/media/' + encodeURIComponent(filename);
+  }
+
+  return cleanedUrl;
+}
+
+function serializeSelectedElements(elements, mediaContext) {
   if (!Array.isArray(elements)) {
     return [];
   }
@@ -498,7 +546,9 @@ function serializeSelectedElements(elements) {
       'asc_getType'
     ]);
     var value = readSelectionValue(element, ['Value', 'value', 'asc_getObjectValue', 'getValue']);
-    var imageUrl = getImageUrlFromElement(element);
+    var rawImageUrl = getImageUrlFromElement(element);
+    var imageUrl = normalizeSelectedElementImageUrl(rawImageUrl, mediaContext);
+    var imageName = getMediaFilenameFromImageUrl(rawImageUrl);
     var objectId = readSelectionValue(element, [
       'Id',
       'id',
@@ -521,6 +571,9 @@ function serializeSelectedElements(elements) {
     if (imageUrl) {
       item.imageUrl = imageUrl;
     }
+    if (imageName) {
+      item.imageName = imageName;
+    }
 
     var typeText = item.type === undefined || item.type === null ? '' : String(item.type).toLowerCase();
     item.hasImage = !!imageUrl || typeText.indexOf('image') !== -1 || typeText.indexOf('picture') !== -1;
@@ -531,9 +584,9 @@ function serializeSelectedElements(elements) {
   return serialized;
 }
 
-function buildDocumentSelectionPayload(api, focusedElements) {
+function buildDocumentSelectionPayload(api, focusedElements, mediaContext) {
   var text = extractSelectedText(api);
-  var objects = serializeSelectedElements(getSelectedElements(api, focusedElements));
+  var objects = serializeSelectedElements(getSelectedElements(api, focusedElements), mediaContext);
 
   if (text) {
     var textPayload = {
@@ -584,6 +637,11 @@ function createSelectionStream(options) {
     filePath: options.filePath || options.filepath || '',
     filename: options.filename || ''
   };
+  var mediaContext = {
+    baseUrl: options.baseUrl || '',
+    fileHash: options.fileHash || '',
+    docBaseUrl: options.docBaseUrl || ''
+  };
   var lastPayloadKey = null;
 
   function emit(selection) {
@@ -606,7 +664,7 @@ function createSelectionStream(options) {
       return emit(buildCellSelectionPayload(api, iframeWindow, cellInfo));
     },
     emitDocument: function(focusedElements) {
-      return emit(buildDocumentSelectionPayload(api, focusedElements));
+      return emit(buildDocumentSelectionPayload(api, focusedElements, mediaContext));
     }
   };
 }
@@ -633,6 +691,7 @@ function createSelectionStream(options) {
     SELECTION_CHANGED_MESSAGE_TYPE: SELECTION_CHANGED_MESSAGE_TYPE,
     extractSelectedText: extractSelectedText,
     serializeSelectedElements: serializeSelectedElements,
+    normalizeSelectedElementImageUrl: normalizeSelectedElementImageUrl,
     buildCellSelectionPayload: buildCellSelectionPayload,
     buildDocumentSelectionPayload: buildDocumentSelectionPayload,
     buildSelectionMessage: buildSelectionMessage,

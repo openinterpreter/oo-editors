@@ -17,6 +17,7 @@ import {
   SELECTION_CHANGED_MESSAGE_TYPE,
   extractSelectedText,
   serializeSelectedElements,
+  normalizeSelectedElementImageUrl,
   buildCellSelectionPayload,
   buildDocumentSelectionPayload,
   buildSelectionMessage,
@@ -489,11 +490,45 @@ describe('selection streaming utilities', () => {
         type: 'Image',
         id: 'object-1',
         imageUrl: 'media/image1.png',
+        imageName: 'image1.png',
         hasImage: true
       }
     ]);
     expect(result[0].value).toBeUndefined();
-    expect(JSON.stringify(result)).toBe('[{"type":"Image","id":"object-1","imageUrl":"media/image1.png","hasImage":true}]');
+    expect(JSON.stringify(result)).toBe('[{"type":"Image","id":"object-1","imageUrl":"media/image1.png","imageName":"image1.png","hasImage":true}]');
+  });
+
+  test('normalizeSelectedElementImageUrl maps relative media names to full server URLs', () => {
+    expect(normalizeSelectedElementImageUrl('image3.png', {
+      baseUrl: 'http://localhost:38123',
+      fileHash: 'abc123'
+    })).toBe('http://localhost:38123/api/media/abc123/image3.png');
+
+    expect(normalizeSelectedElementImageUrl('media/my image.png?cache=1', {
+      baseUrl: 'http://localhost:38123',
+      fileHash: 'abc123'
+    })).toBe('http://localhost:38123/api/media/abc123/my%20image.png');
+
+    expect(normalizeSelectedElementImageUrl('https://example.com/image.png', {
+      baseUrl: 'http://localhost:38123',
+      fileHash: 'abc123'
+    })).toBe('https://example.com/image.png');
+  });
+
+  test('serializeSelectedElements includes full image URL when media context is available', () => {
+    expect(serializeSelectedElements([
+      { type: 'Picture', ImageUrl: 'image3.png' }
+    ], {
+      baseUrl: 'http://localhost:38123',
+      fileHash: '3c1d80c7decce8607bcd62d1787659fa'
+    })).toEqual([
+      {
+        type: 'Picture',
+        imageUrl: 'http://localhost:38123/api/media/3c1d80c7decce8607bcd62d1787659fa/image3.png',
+        imageName: 'image3.png',
+        hasImage: true
+      }
+    ]);
   });
 
   test('buildDocumentSelectionPayload prefers selected Word text and includes selected objects', () => {
@@ -532,6 +567,7 @@ describe('selection streaming utilities', () => {
         {
           type: 'Picture',
           imageUrl: 'media/photo.png',
+          imageName: 'photo.png',
           hasImage: true
         }
       ]

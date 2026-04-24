@@ -781,7 +781,10 @@ See common.js and desktop-stub.js headers for related documentation.
                                             parentWindow: window.parent,
                                             doctype: doctype,
                                             filePath: window._ONLYOFFICE_FILEPATH,
-                                            filename: window._ONLYOFFICE_FILENAME
+                                            filename: window._ONLYOFFICE_FILENAME,
+                                            baseUrl: SERVER_BASE_URL,
+                                            fileHash: window._ONLYOFFICE_FILE_HASH,
+                                            docBaseUrl: window._ONLYOFFICE_DOC_BASE_URL
                                         });
                                         console.log('[SELECTION] Selection stream initialized for doctype:', doctype);
                                     } else {
