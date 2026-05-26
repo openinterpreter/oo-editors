@@ -1,0 +1,139 @@
+diff --git a/DesktopEditor/AllFontsGen/main.cpp b/DesktopEditor/AllFontsGen/main.cpp
+--- a/DesktopEditor/AllFontsGen/main.cpp
++++ b/DesktopEditor/AllFontsGen/main.cpp
+@@ -32,6 +32,9 @@
+  */
+ #include <iostream>
+ #include <set>
++#include <fstream>
++#include <sstream>
++#include <cstdlib>
+ 
+ #include "../common/Directory.h"
+ #include "../fontengine/ApplicationFontsWorker.h"
+@@ -40,6 +43,103 @@
+ #include "../freetype_names/FontMaps/FontDictionary.h"
+ #endif
+ 
++#ifdef _WIN32
++#include <windows.h>
++
++static std::wstring g_allFontsGenDiagLogPath;
++static std::wstring g_allFontsGenOutputDir;
++
++static const wchar_t* GetControlEventName(DWORD eventType)
++{
++	switch (eventType)
++	{
++	case CTRL_C_EVENT:
++		return L"CTRL_C_EVENT";
++	case CTRL_BREAK_EVENT:
++		return L"CTRL_BREAK_EVENT";
++	case CTRL_CLOSE_EVENT:
++		return L"CTRL_CLOSE_EVENT";
++	case CTRL_LOGOFF_EVENT:
++		return L"CTRL_LOGOFF_EVENT";
++	case CTRL_SHUTDOWN_EVENT:
++		return L"CTRL_SHUTDOWN_EVENT";
++	default:
++		return L"UNKNOWN_CONTROL_EVENT";
++	}
++}
++
++static std::wstring GetCurrentDirectoryForLog()
++{
++	DWORD required = GetCurrentDirectoryW(0, NULL);
++	if (required == 0)
++		return L"";
++
++	std::wstring value(required, L'\0');
++	DWORD written = GetCurrentDirectoryW(required, &value[0]);
++	if (written == 0)
++		return L"";
++
++	value.resize(written);
++	return value;
++}
++
++static void AppendAllFontsGenDiagLine(const std::wstring& line)
++{
++	if (g_allFontsGenDiagLogPath.empty())
++		return;
++
++	std::wofstream file(g_allFontsGenDiagLogPath.c_str(), std::ios::app);
++	if (!file.is_open())
++		return;
++
++	SYSTEMTIME now;
++	GetSystemTime(&now);
++	file << L"utc="
++	     << now.wYear << L"-" << now.wMonth << L"-" << now.wDay
++	     << L"T" << now.wHour << L":" << now.wMinute << L":" << now.wSecond
++	     << L"." << now.wMilliseconds << L"Z "
++	     << line << std::endl;
++}
++
++static void AppendAllFontsGenState(const wchar_t* stage)
++{
++	std::wstringstream line;
++	line << L"stage=" << stage
++	     << L" pid=" << GetCurrentProcessId()
++	     << L" cwd=\"" << GetCurrentDirectoryForLog() << L"\""
++	     << L" outputDir=\"" << g_allFontsGenOutputDir << L"\"";
++	AppendAllFontsGenDiagLine(line.str());
++}
++
++static BOOL WINAPI AllFontsGenConsoleCtrlHandler(DWORD eventType)
++{
++	std::wstringstream line;
++	line << L"stage=console-control"
++	     << L" event=" << GetControlEventName(eventType)
++	     << L" eventCode=" << eventType
++	     << L" pid=" << GetCurrentProcessId()
++	     << L" cwd=\"" << GetCurrentDirectoryForLog() << L"\""
++	     << L" outputDir=\"" << g_allFontsGenOutputDir << L"\"";
++	AppendAllFontsGenDiagLine(line.str());
++
++	// Return FALSE so Windows keeps its normal behavior. For CTRL+C this preserves
++	// the observed STATUS_CONTROL_C_EXIT / 0xC000013A termination instead of hiding it.
++	return FALSE;
++}
++
++static void InitAllFontsGenDiagnostics(const std::wstring& outputDir)
++{
++	const wchar_t* logPath = _wgetenv(L"ALLFONTSGEN_DIAG_LOG");
++	if (!logPath || !logPath[0])
++		return;
++
++	g_allFontsGenDiagLogPath = logPath;
++	g_allFontsGenOutputDir = outputDir;
++	SetConsoleCtrlHandler(AllFontsGenConsoleCtrlHandler, TRUE);
++	AppendAllFontsGenState(L"start");
++}
++#endif
++
+ std::wstring CorrectDir(const std::wstring& sDir)
+ {
+ 	if (sDir.empty())
+@@ -206,6 +305,10 @@
+ 	// font_selection.bin
+ 	// fonts.log
+ 	oWorker.m_sDirectory = NSFile::GetDirectoryName(strFontsSelectionBin);
++
++#ifdef _WIN32
++	InitAllFontsGenDiagnostics(oWorker.m_sDirectory);
++#endif
+ 
+ 	// thumbnails
+ 	oWorker.m_sThumbnailsDirectory = strThumbnailsFolder;
+@@ -222,7 +325,10 @@
+ 	// opentype
+ 	oWorker.m_bIsUseOpenType = (0x01 == (0x01 & nFontFlag));
+ 
+ 	NSFonts::IApplicationFonts* pApplicationFonts = oWorker.Check();
++#ifdef _WIN32
++	AppendAllFontsGenState(pApplicationFonts ? L"after-check-non-null" : L"after-check-null");
++#endif
+ 	if (oWorker.m_bIsNeedThumbnails)
+ 		oWorker.CheckThumbnails();
+ 

@@ -148,6 +148,8 @@ jobs:
           Get-ChildItem converter/*.dll | ForEach-Object { Write-Output "Bundled $($_.Name) ($($_.Length) bytes)" }
 
       - name: Build allfontsgen
+        env:
+          ALLFONTSGEN_FORCE_REBUILD: ${{ runner.os == 'Windows' && '1' || '0' }}
         run: bun scripts/build_allfontsgen.js
 
       - name: Install production dependencies
