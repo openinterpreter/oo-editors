@@ -1,0 +1,65 @@
+diff --git a/DesktopEditor/AllFontsGen/main.cpp b/DesktopEditor/AllFontsGen/main.cpp
+--- a/DesktopEditor/AllFontsGen/main.cpp
++++ b/DesktopEditor/AllFontsGen/main.cpp
+@@ -33,0 +34,2 @@
++#include <fstream>
++#include <cstdlib>
+@@ -42,0 +45,49 @@
++
++#ifdef _WIN32
++#include <windows.h>
++
++static std::wstring g_allFontsGenDiagLogPath;
++static std::wstring g_allFontsGenOutputDir;
++
++static void AppendAllFontsGenDiagLine(const wchar_t* stage, DWORD eventType = MAXDWORD)
++{
++	if (g_allFontsGenDiagLogPath.empty())
++		return;
++
++	std::wofstream file(g_allFontsGenDiagLogPath.c_str(), std::ios::app);
++	if (!file.is_open())
++		return;
++
++	SYSTEMTIME now;
++	GetSystemTime(&now);
++	file << L"utc="
++	     << now.wYear << L"-" << now.wMonth << L"-" << now.wDay
++	     << L"T" << now.wHour << L":" << now.wMinute << L":" << now.wSecond
++	     << L"." << now.wMilliseconds << L"Z"
++	     << L" stage=" << stage
++	     << L" pid=" << GetCurrentProcessId();
++
++	if (eventType != MAXDWORD)
++		file << L" eventCode=" << eventType;
++
++	file << L" outputDir=\"" << g_allFontsGenOutputDir << L"\"" << std::endl;
++}
++
++static BOOL WINAPI AllFontsGenConsoleCtrlHandler(DWORD eventType)
++{
++	AppendAllFontsGenDiagLine(L"console-control", eventType);
++	return FALSE;
++}
++
++static void InitAllFontsGenDiagnostics(const std::wstring& outputDir)
++{
++	const wchar_t* logPath = _wgetenv(L"ALLFONTSGEN_DIAG_LOG");
++	if (!logPath || !logPath[0])
++		return;
++
++	g_allFontsGenDiagLogPath = logPath;
++	g_allFontsGenOutputDir = outputDir;
++	SetConsoleCtrlHandler(AllFontsGenConsoleCtrlHandler, TRUE);
++	AppendAllFontsGenDiagLine(L"start");
++}
++#endif
+@@ -209,0 +261,4 @@
++#ifdef _WIN32
++	InitAllFontsGenDiagnostics(oWorker.m_sDirectory);
++#endif
++
+@@ -225,0 +281,3 @@
++#ifdef _WIN32
++	AppendAllFontsGenDiagLine(pApplicationFonts ? L"after-check-non-null" : L"after-check-null");
++#endif

@@ -25,12 +25,24 @@ const CORE_REPO = 'https://github.com/ONLYOFFICE/core.git';
 const CORE_COMMIT = '82e281cf6bf89498e4de6018423b36576706c2b6';
 const SRC = path.join(CORE_DIR, 'DesktopEditor', 'AllFontsGen', 'main.cpp');
 const WINDOWS_COMPONENTS = ['graphics', 'kernel', 'UnicodeConverter'];
+const FORCE_ALLFONTSGEN_REBUILD = process.env.ALLFONTSGEN_FORCE_REBUILD === '1';
+const ALLFONTSGEN_DIAGNOSTICS_PATCH = path.join(
+  ROOT,
+  'scripts',
+  'patches',
+  'allfontsgen-control-diagnostics.patch'
+);
 let cachedConverterArch = null;
 
 const platform = process.platform; // 'darwin', 'win32', 'linux'
 
 // Early return if allfontsgen binary already exists
 function checkExistingBinary() {
+  if (FORCE_ALLFONTSGEN_REBUILD) {
+    console.log('[build_allfontsgen] ALLFONTSGEN_FORCE_REBUILD=1, rebuilding binary');
+    return false;
+  }
+
   if (platform === 'darwin') {
     const output = path.join(CONVERTER_DIR, 'allfontsgen');
     if (fs.existsSync(output)) {
@@ -364,12 +376,25 @@ function ensureCoreSources() {
 
   console.log(`[build_allfontsgen] Checking out ONLYOFFICE/core commit ${CORE_COMMIT}...`);
   run('git', ['fetch', '--all'], { cwd: CORE_DIR });
-  run('git', ['checkout', CORE_COMMIT], { cwd: CORE_DIR });
+  run('git', ['checkout', '--force', CORE_COMMIT], { cwd: CORE_DIR });
   console.log('[build_allfontsgen] Updating ONLYOFFICE/core submodules...');
   run('git', ['submodule', 'update', '--init', '--recursive', '--force'], { cwd: CORE_DIR });
 }
 
+function applyAllFontsGenDiagnosticsPatch() {
+  if (!fs.existsSync(ALLFONTSGEN_DIAGNOSTICS_PATCH)) {
+    console.error('[build_allfontsgen] Missing diagnostics patch:', ALLFONTSGEN_DIAGNOSTICS_PATCH);
+    process.exit(1);
+  }
+
+  console.log('[build_allfontsgen] Applying AllFontsGen diagnostics patch...');
+  run('git', ['apply', '--unidiff-zero', '--whitespace=nowarn', ALLFONTSGEN_DIAGNOSTICS_PATCH], {
+    cwd: CORE_DIR,
+  });
+}
+
 ensureCoreSources();
+applyAllFontsGenDiagnosticsPatch();
 
 if (!fs.existsSync(SRC)) {
   console.error('[build_allfontsgen] main.cpp not found:', SRC);
