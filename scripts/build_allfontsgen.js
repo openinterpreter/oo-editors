@@ -376,7 +376,7 @@ function ensureCoreSources() {
 
   console.log(`[build_allfontsgen] Checking out ONLYOFFICE/core commit ${CORE_COMMIT}...`);
   run('git', ['fetch', '--all'], { cwd: CORE_DIR });
-  run('git', ['checkout', CORE_COMMIT], { cwd: CORE_DIR });
+  run('git', ['checkout', '--force', CORE_COMMIT], { cwd: CORE_DIR });
   console.log('[build_allfontsgen] Updating ONLYOFFICE/core submodules...');
   run('git', ['submodule', 'update', '--init', '--recursive', '--force'], { cwd: CORE_DIR });
 }
@@ -388,7 +388,9 @@ function applyAllFontsGenDiagnosticsPatch() {
   }
 
   console.log('[build_allfontsgen] Applying AllFontsGen diagnostics patch...');
-  run('git', ['apply', '--whitespace=nowarn', ALLFONTSGEN_DIAGNOSTICS_PATCH], { cwd: CORE_DIR });
+  run('git', ['apply', '--unidiff-zero', '--whitespace=nowarn', ALLFONTSGEN_DIAGNOSTICS_PATCH], {
+    cwd: CORE_DIR,
+  });
 }
 
 ensureCoreSources();
