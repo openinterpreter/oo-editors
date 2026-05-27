@@ -93,8 +93,8 @@ function readDiagnosticLog() {
     return '';
   }
 
-  const lines = text.split(/\r?\n/).slice(-20);
-  return `\n[generate_office_fonts] allfontsgen diagnostic log:\n${lines.join('\n')}`;
+  const normalizedText = text.replaceAll('\r\n', '\n');
+  return `\n[generate_office_fonts] allfontsgen diagnostic log:\n${normalizedText}`;
 }
 
 function formatExitStatus(status) {
