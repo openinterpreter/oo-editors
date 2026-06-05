@@ -29,7 +29,8 @@ const {
   resolveX2TPath,
   describeChildExit,
   getBufferedStderrLog,
-  runChildProcess
+  runChildProcess,
+  readFileWithRetry
 } = require('./server-utils');
 
 const LOG_NAMESPACE = 'oo-editors';
@@ -671,7 +672,7 @@ app.get('/api/convert', async (req, res) => {
       if (cacheMtime > sourceMtime) {
         logInfo('CONVERT', `cache hit using cached Editor.bin (source: ${new Date(sourceMtime).toISOString()}, cache: ${new Date(cacheMtime).toISOString()})`);
         timings.cacheHit = true;
-        const binaryData = fs.readFileSync(outputPath);
+        const binaryData = await readFileWithRetry(outputPath);
 
         timings.end = performance.now();
         const breakdown = {
@@ -769,7 +770,7 @@ app.get('/api/convert', async (req, res) => {
     // Read and send the binary file
     timings.beforeReadOutput = performance.now();
     logInfo('CONVERT', `reading output file: ${outputPath}`);
-    const binaryData = fs.readFileSync(outputPath);
+    const binaryData = await readFileWithRetry(outputPath);
     timings.afterReadOutput = performance.now();
     logInfo('CONVERT', `sending ${binaryData.length} bytes`);
 

@@ -16,7 +16,8 @@ import {
   resolveX2TPath,
   describeChildExit,
   getBufferedStderrLog,
-  runChildProcess
+  runChildProcess,
+  readFileWithRetry
 } from '../server-utils.js';
 
 describe('getX2TFormatCode', () => {
@@ -487,5 +488,80 @@ describe('runChildProcess', () => {
       stdout: '',
       stderr: ''
     });
+  });
+});
+
+describe('readFileWithRetry', () => {
+  function lockError(code) {
+    const err = new Error(`${code}: resource busy or locked, open 'Editor.bin'`);
+    err.code = code;
+    return err;
+  }
+
+  test('retries on EBUSY then returns the buffer (the Editor.bin lock race)', async () => {
+    let calls = 0;
+    const readFileSync = () => {
+      calls++;
+      if (calls < 3) throw lockError('EBUSY');
+      return Buffer.from('ok');
+    };
+    const data = await readFileWithRetry('Editor.bin', {
+      readFileSync,
+      sleep: () => Promise.resolve(),
+      retries: 5,
+      delayMs: 0
+    });
+    expect(calls).toBe(3);
+    expect(data.toString()).toBe('ok');
+  });
+
+  test('retries on EPERM then returns the buffer', async () => {
+    let calls = 0;
+    const readFileSync = () => {
+      calls++;
+      if (calls < 2) throw lockError('EPERM');
+      return Buffer.from('ok');
+    };
+    const data = await readFileWithRetry('Editor.bin', {
+      readFileSync,
+      sleep: () => Promise.resolve(),
+      retries: 5,
+      delayMs: 0
+    });
+    expect(calls).toBe(2);
+    expect(data.toString()).toBe('ok');
+  });
+
+  test('rethrows after exhausting retries', async () => {
+    const readFileSync = () => {
+      throw lockError('EBUSY');
+    };
+    await expect(
+      readFileWithRetry('Editor.bin', {
+        readFileSync,
+        sleep: () => Promise.resolve(),
+        retries: 2,
+        delayMs: 0
+      })
+    ).rejects.toThrow('EBUSY');
+  });
+
+  test('does not retry on non-lock errors (ENOENT surfaces immediately)', async () => {
+    let calls = 0;
+    const readFileSync = () => {
+      calls++;
+      const err = new Error('ENOENT: no such file');
+      err.code = 'ENOENT';
+      throw err;
+    };
+    await expect(
+      readFileWithRetry('Editor.bin', {
+        readFileSync,
+        sleep: () => Promise.resolve(),
+        retries: 5,
+        delayMs: 0
+      })
+    ).rejects.toThrow('ENOENT');
+    expect(calls).toBe(1);
   });
 });
