@@ -370,6 +370,35 @@ function runChildProcess(spawnFn, command, args, options = {}) {
   });
 }
 
+/**
+ * Read a file, retrying briefly on Windows EBUSY/EPERM open races.
+ * x2t writes Editor.bin then exits; AV / Search Indexer can hold the freshly written
+ * file for a few ms, so an immediate readFileSync throws EBUSY/EPERM. Retry is bounded
+ * and scoped to those two codes only; any other error surfaces immediately.
+ * NOTE(windows-race): bounded EBUSY/EPERM retry mirrors graceful-fs / VS Code pfs.
+ * @param {string} filePath
+ * @param {{ readFileSync?: (p: string) => Buffer, sleep?: (ms: number) => Promise<void>, retries?: number, delayMs?: number }} [deps]
+ * @returns {Promise<Buffer>}
+ */
+async function readFileWithRetry(filePath, deps = {}) {
+  const readFileSync = deps.readFileSync || require('fs').readFileSync;
+  const sleep = deps.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const retries = Number.isInteger(deps.retries) ? deps.retries : 10;
+  const delayMs = Number.isInteger(deps.delayMs) ? deps.delayMs : 50;
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return readFileSync(filePath);
+    } catch (err) {
+      const isLockRace = err && (err.code === 'EBUSY' || err.code === 'EPERM');
+      if (!isLockRace || attempt >= retries) {
+        throw err;
+      }
+      await sleep(delayMs * (attempt + 1));
+    }
+  }
+}
+
 module.exports = {
   getX2TFormatCode,
   getOutputFormatInfo,
@@ -384,5 +413,6 @@ module.exports = {
   resolveX2TPath,
   describeChildExit,
   getBufferedStderrLog,
-  runChildProcess
+  runChildProcess,
+  readFileWithRetry
 };
