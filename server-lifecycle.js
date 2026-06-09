@@ -1,3 +1,8 @@
+const { execFileSync } = require('child_process');
+
+// Cap the port lookup so a wedged lsof/netstat can never freeze startup.
+const PORT_LOOKUP_TIMEOUT_MS = 2000;
+
 function isBrokenPipeError(error) {
   const message = error && typeof error.message === 'string' ? error.message : '';
   const mentionsBrokenPipe = /\bEPIPE\b/.test(message);
@@ -161,6 +166,89 @@ function handleProcessFailure(kind, error, handlers) {
   shutdown(kind, 1);
 }
 
+function isEnvFlagEnabled(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
+function getOwnPortCleanupExclusions(processInfo = process) {
+  return [processInfo.pid, processInfo.ppid].filter((pid) => Number.isInteger(pid) && pid > 0);
+}
+
+// Extract the PID(s) LISTENING on the port. macOS lsof (-sTCP:LISTEN) already
+// prints one listener PID per line. Windows netstat -ano prints every
+// connection, so keep only LISTENING rows whose local address ends with :port
+// -- this is what stops us from ever targeting a client that merely has a
+// connection open to the port (the desktop app keeps client sockets to us).
+function parsePortHolderPids(output, platform, port) {
+  const lines = String(output).split('\n').map((line) => line.trim()).filter(Boolean);
+
+  if (platform === 'win32') {
+    return lines
+      .filter((line) => line.includes('LISTENING'))
+      .map((line) => line.split(/\s+/))
+      .filter((columns) => (columns[1] ?? '').endsWith(`:${port}`))
+      .map((columns) => Number(columns[columns.length - 1]))
+      .filter((pid) => Number.isInteger(pid) && pid > 0);
+  }
+
+  return lines
+    .map((line) => Number(line))
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
+}
+
+function lookupListenerPids(port, platform, run) {
+  const [file, args] = platform === 'win32'
+    ? ['netstat', ['-ano']]
+    : ['lsof', ['-t', `-iTCP:${port}`, '-sTCP:LISTEN']];
+
+  const output = run(file, args, { encoding: 'utf8', timeout: PORT_LOOKUP_TIMEOUT_MS });
+  return parsePortHolderPids(output, platform, port);
+}
+
+// Best-effort: free a port by killing whatever process is LISTENING on it.
+// Hard contract: this NEVER throws under any input -- it returns the PIDs it
+// killed (possibly empty), so a missing/wedged lookup tool, a vanished PID
+// (ESRCH), a denied signal (EPERM), or even malformed options can never crash
+// the host server. Listener-only targeting plus excluding this process and its
+// parent keep it from killing the wrong thing.
+function killPortProcess(port, options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const run = options.exec ?? execFileSync;
+    const killPid = options.kill ?? ((pid) => process.kill(pid, 'SIGKILL'));
+    const excluded = new Set(
+      (options.excludePids ?? getOwnPortCleanupExclusions())
+        .filter((pid) => Number.isInteger(pid) && pid > 0)
+    );
+
+    const pids = lookupListenerPids(port, platform, run);
+
+    const killed = [];
+    for (const pid of new Set(pids)) {
+      if (excluded.has(pid)) {
+        continue;
+      }
+      try {
+        killPid(pid);
+        killed.push(pid);
+      } catch {
+        // Already gone (ESRCH) or not permitted (EPERM) -- skip the pid but keep
+        // killing the rest; the loop must not abandon other holders.
+      }
+    }
+    return killed;
+  } catch {
+    // No listener (lsof/netstat exit non-zero), a missing tool, a timed-out
+    // lookup, or bad options -- degrade to "freed nothing", never propagate.
+    return [];
+  }
+}
+
 // The desktop app frees port 38123 in the Electron process and then spawns this
 // server as a separate Node process, so the "port is free" check and the real
 // bind happen in different processes a spawn apart. A predecessor's listening
@@ -208,5 +296,8 @@ module.exports = {
   handleProcessFailure,
   handleStdIoStreamError,
   isBrokenPipeError,
+  isEnvFlagEnabled,
+  killPortProcess,
+  parsePortHolderPids,
   startListeningWithRetry
 };

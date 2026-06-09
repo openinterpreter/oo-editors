@@ -16,6 +16,8 @@ const {
   createStdIoState,
   handleProcessFailure,
   handleStdIoStreamError,
+  isEnvFlagEnabled,
+  killPortProcess,
   startListeningWithRetry
 } = require('./server-lifecycle');
 const {
@@ -1564,6 +1566,9 @@ app.use('/static-test', express.static(path.join(__dirname, 'static-test'), {
 // parent's 30s readiness wait. A genuinely stuck port still fails after retries.
 const LISTEN_MAX_RETRIES = 10;
 const LISTEN_RETRY_DELAY_MS = 250;
+// Opt-in: when OO_EDITOR_KILL_PORT_ON_CONFLICT is set, evict whatever process
+// holds the port between retries instead of only waiting for it to free itself.
+const KILL_PORT_ON_CONFLICT = isEnvFlagEnabled(process.env.OO_EDITOR_KILL_PORT_ON_CONFLICT);
 
 startListeningWithRetry({
   maxRetries: LISTEN_MAX_RETRIES,
@@ -1585,10 +1590,15 @@ startListeningWithRetry({
   },
   onRetry: ({ retriesLeft }) => {
     logError('STARTUP', `port ${PORT} is already in use, retrying (${retriesLeft} attempt(s) left)`);
-    addLifecycleBreadcrumb('server listen retry', {
-      port: PORT,
-      retriesLeft
-    }, {
+    const retryData = { port: PORT, retriesLeft };
+    if (KILL_PORT_ON_CONFLICT) {
+      const killedPids = killPortProcess(PORT);
+      retryData.killedPids = killedPids;
+      if (killedPids.length > 0) {
+        logInfo('STARTUP', `evicted process(es) holding port ${PORT}: ${killedPids.join(', ')}`);
+      }
+    }
+    addLifecycleBreadcrumb('server listen retry', retryData, {
       category: 'oo-editors.startup',
       level: 'warning'
     });

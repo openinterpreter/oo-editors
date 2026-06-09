@@ -6,6 +6,9 @@ import {
   handleProcessFailure,
   handleStdIoStreamError,
   isBrokenPipeError,
+  isEnvFlagEnabled,
+  killPortProcess,
+  parsePortHolderPids,
   startListeningWithRetry
 } from '../server-lifecycle.js';
 
@@ -302,6 +305,140 @@ describe('startListeningWithRetry', () => {
     expect(retries).toHaveLength(0);
     expect(fatals).toHaveLength(1);
     expect(fatals[0].code).toBe('EADDRINUSE');
+  });
+});
+
+describe('isEnvFlagEnabled', () => {
+  test('treats 1/true/yes (case- and space-insensitive) as enabled', () => {
+    expect(isEnvFlagEnabled('1')).toBe(true);
+    expect(isEnvFlagEnabled('true')).toBe(true);
+    expect(isEnvFlagEnabled('YES')).toBe(true);
+    expect(isEnvFlagEnabled('  true  ')).toBe(true);
+  });
+
+  test('treats everything else as disabled', () => {
+    expect(isEnvFlagEnabled('0')).toBe(false);
+    expect(isEnvFlagEnabled('false')).toBe(false);
+    expect(isEnvFlagEnabled('')).toBe(false);
+    expect(isEnvFlagEnabled(undefined)).toBe(false);
+  });
+});
+
+describe('parsePortHolderPids', () => {
+  test('reads one listener PID per line from lsof output', () => {
+    expect(parsePortHolderPids('123\n456\n', 'darwin', 38123)).toEqual([123, 456]);
+  });
+
+  test('keeps only LISTENING rows for the port from netstat output', () => {
+    const netstat = [
+      '  TCP    0.0.0.0:38123     0.0.0.0:0         LISTENING    4321',
+      '  TCP    [::]:38123        [::]:0            LISTENING    4321',
+      '  TCP    10.0.0.5:55012    10.0.0.9:38123    ESTABLISHED  7777', // client -> :38123, must be ignored
+      '  TCP    0.0.0.0:5173      0.0.0.0:0         LISTENING    8888'  // different port, must be ignored
+    ].join('\n');
+    expect(parsePortHolderPids(netstat, 'win32', 38123)).toEqual([4321, 4321]);
+  });
+});
+
+describe('killPortProcess', () => {
+  function recordingKill() {
+    const killed = [];
+    return { kill: (pid) => killed.push(pid), killed };
+  }
+
+  test('kills every PID holding the port (posix)', () => {
+    const { kill, killed } = recordingKill();
+    const result = killPortProcess(38123, {
+      platform: 'darwin',
+      exec: () => '123\n456\n',
+      kill,
+      excludePids: [999]
+    });
+
+    expect(killed).toEqual([123, 456]);
+    expect(result).toEqual([123, 456]);
+  });
+
+  test('never kills excluded PIDs (self/parent)', () => {
+    const { kill, killed } = recordingKill();
+    const result = killPortProcess(38123, {
+      platform: 'darwin',
+      exec: () => '123\n456\n',
+      kill,
+      excludePids: [123]
+    });
+
+    expect(killed).toEqual([456]);
+    expect(result).toEqual([456]);
+  });
+
+  test('returns nothing when no process holds the port', () => {
+    const { kill, killed } = recordingKill();
+    const result = killPortProcess(38123, {
+      platform: 'darwin',
+      exec: () => { throw new Error('lsof exit 1'); },
+      kill,
+      excludePids: []
+    });
+
+    expect(killed).toEqual([]);
+    expect(result).toEqual([]);
+  });
+
+  test('keeps going when killing one PID throws', () => {
+    const killed = [];
+    const result = killPortProcess(38123, {
+      platform: 'darwin',
+      exec: () => '123\n456\n',
+      kill: (pid) => {
+        if (pid === 123) throw new Error('ESRCH');
+        killed.push(pid);
+      },
+      excludePids: []
+    });
+
+    expect(killed).toEqual([456]);
+    expect(result).toEqual([456]);
+  });
+
+  test('kills only the listener, never a client connected to the port (windows)', () => {
+    const { kill, killed } = recordingKill();
+    const netstat = [
+      '  TCP    0.0.0.0:38123    0.0.0.0:0        LISTENING    4321',
+      '  TCP    10.0.0.5:55012   10.0.0.9:38123   ESTABLISHED  7777'
+    ].join('\n');
+
+    const result = killPortProcess(38123, {
+      platform: 'win32',
+      exec: () => netstat,
+      kill,
+      excludePids: []
+    });
+
+    expect(killed).toEqual([4321]);
+    expect(result).toEqual([4321]);
+  });
+
+  test('never throws when the lookup tool throws synchronously', () => {
+    let result;
+    expect(() => {
+      result = killPortProcess(38123, {
+        platform: 'darwin',
+        exec: () => { throw new Error('ENOENT: lsof missing'); },
+        kill: () => {},
+        excludePids: []
+      });
+    }).not.toThrow();
+    expect(result).toEqual([]);
+  });
+
+  test('never throws even with malformed options', () => {
+    let result;
+    expect(() => {
+      // excludePids is not iterable -- must still degrade to [], not crash.
+      result = killPortProcess(38123, { excludePids: 42, exec: () => '123\n' });
+    }).not.toThrow();
+    expect(result).toEqual([]);
   });
 });
 
