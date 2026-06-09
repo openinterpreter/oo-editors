@@ -1561,13 +1561,12 @@ app.use('/static-test', express.static(path.join(__dirname, 'static-test'), {
   }
 }));
 
-// NOTE(victor): 10 x 250ms (~2.5s) absorbs a predecessor socket still tearing
-// down after the desktop app killed the port, while staying well inside the
-// parent's 30s readiness wait. A genuinely stuck port still fails after retries.
+// NOTE(victor): 10 x 250ms (~2.5s) rides out a predecessor socket still tearing
+// down, well inside the parent's 30s readiness wait.
 const LISTEN_MAX_RETRIES = 10;
 const LISTEN_RETRY_DELAY_MS = 250;
-// On by default: evict whatever process holds the port between retries. Set
-// OO_EDITOR_KILL_PORT_ON_CONFLICT to 0/false/no to opt out and only wait.
+// On by default: evict the port holder between retries. Set
+// OO_EDITOR_KILL_PORT_ON_CONFLICT=0/false/no to only wait.
 const KILL_PORT_ON_CONFLICT = isEnvFlagEnabled(process.env.OO_EDITOR_KILL_PORT_ON_CONFLICT || 'true');
 
 startListeningWithRetry({

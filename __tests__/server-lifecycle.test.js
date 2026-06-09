@@ -18,8 +18,7 @@ function addrInUseError() {
   return error;
 }
 
-// attemptListen fake that replays a queue of outcomes ('listen' | Error) so each
-// bind attempt resolves deterministically without real sockets or timers.
+// attemptListen fake: replays a queue of outcomes ('listen' | Error), no real sockets.
 function createReplayListen(outcomes) {
   let attempts = 0;
   function attemptListen({ onListening, onError }) {
@@ -297,8 +296,7 @@ describe('startListeningWithRetry', () => {
       maxRetries: 5
     });
 
-    // The server is already listening; a later runtime EADDRINUSE must not
-    // re-enter the bind-retry path (which would call attemptListen again).
+    // Already listening: a later EADDRINUSE must not re-enter the retry path.
     capturedOnError(addrInUseError());
 
     expect(attempts).toBe(1);

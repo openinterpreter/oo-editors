@@ -1,6 +1,6 @@
 const { execFileSync } = require('child_process');
 
-// Cap the port lookup so a wedged lsof/netstat can never freeze startup.
+// Cap port lookup so a wedged lsof/netstat can't freeze startup.
 const PORT_LOOKUP_TIMEOUT_MS = 2000;
 
 function isBrokenPipeError(error) {
@@ -179,11 +179,9 @@ function getOwnPortCleanupExclusions(processInfo = process) {
   return [processInfo.pid, processInfo.ppid].filter((pid) => Number.isInteger(pid) && pid > 0);
 }
 
-// Extract the PID(s) LISTENING on the port. macOS lsof (-sTCP:LISTEN) already
-// prints one listener PID per line. Windows netstat -ano prints every
-// connection, so keep only LISTENING rows whose local address ends with :port
-// -- this is what stops us from ever targeting a client that merely has a
-// connection open to the port (the desktop app keeps client sockets to us).
+// PIDs LISTENING on the port. lsof prints one PID per line; netstat -ano lists
+// every connection, so keep only LISTENING rows ending in :port -- never a
+// client that just holds a socket to us.
 function parsePortHolderPids(output, platform, port) {
   const lines = String(output).split('\n').map((line) => line.trim()).filter(Boolean);
 
@@ -210,12 +208,9 @@ function lookupListenerPids(port, platform, run) {
   return parsePortHolderPids(output, platform, port);
 }
 
-// Best-effort: free a port by killing whatever process is LISTENING on it.
-// Hard contract: this NEVER throws under any input -- it returns the PIDs it
-// killed (possibly empty), so a missing/wedged lookup tool, a vanished PID
-// (ESRCH), a denied signal (EPERM), or even malformed options can never crash
-// the host server. Listener-only targeting plus excluding this process and its
-// parent keep it from killing the wrong thing.
+// Kill whatever LISTENS on the port; returns the PIDs killed. Never throws -- a
+// missing tool, vanished PID, or denied signal all degrade to []. Targets
+// listeners only and excludes this process and its parent.
 function killPortProcess(port, options = {}) {
   try {
     const platform = options.platform ?? process.platform;
@@ -237,24 +232,20 @@ function killPortProcess(port, options = {}) {
         killPid(pid);
         killed.push(pid);
       } catch {
-        // Already gone (ESRCH) or not permitted (EPERM) -- skip the pid but keep
-        // killing the rest; the loop must not abandon other holders.
+        // Gone (ESRCH) or denied (EPERM) -- skip it, keep killing the rest.
       }
     }
     return killed;
   } catch {
-    // No listener (lsof/netstat exit non-zero), a missing tool, a timed-out
-    // lookup, or bad options -- degrade to "freed nothing", never propagate.
+    // No listener, missing tool, timeout, or bad options -- freed nothing.
     return [];
   }
 }
 
-// The desktop app frees port 38123 in the Electron process and then spawns this
-// server as a separate Node process, so the "port is free" check and the real
-// bind happen in different processes a spawn apart. A predecessor's listening
-// socket may still be tearing down when this child binds, surfacing a transient
-// EADDRINUSE. Retry the bind a bounded number of times before giving up so the
-// editor backend rides out that window instead of dying on first conflict.
+// The client frees the port, then spawns this server as a separate process, so
+// a predecessor's socket may still be tearing down when this child binds,
+// surfacing a transient EADDRINUSE. Retry the bind a bounded number of times
+// instead of dying on the first conflict.
 function startListeningWithRetry(options) {
   const {
     attemptListen,
@@ -274,8 +265,7 @@ function startListeningWithRetry(options) {
         onListening();
       },
       onError(error) {
-        // Only a port conflict during the bind phase is retryable. Once the
-        // server is listening, every error (a late EADDRINUSE included) is fatal.
+        // Only a bind-phase EADDRINUSE is retryable; once listening, any error is fatal.
         if (!listening && retriesLeft > 0 && error.code === 'EADDRINUSE') {
           onRetry({ retriesLeft, error });
           scheduleRetry(() => tryListen(retriesLeft - 1));
