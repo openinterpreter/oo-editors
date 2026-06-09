@@ -15,7 +15,10 @@ const {
 const {
   createStdIoState,
   handleProcessFailure,
-  handleStdIoStreamError
+  handleStdIoStreamError,
+  isEnvFlagEnabled,
+  killPortProcess,
+  startListeningWithRetry
 } = require('./server-lifecycle');
 const {
   getX2TFormatCode,
@@ -1558,41 +1561,74 @@ app.use('/static-test', express.static(path.join(__dirname, 'static-test'), {
   }
 }));
 
-server = app.listen(PORT, () => {
-  logInfo('STARTUP', `server running at ${BASE_URL}/ version=${OO_EDITORS_VERSION}`);
-  logInfo('STARTUP', 'desktop stub injection enabled for all HTML files');
-  logInfo('STARTUP', `static test directory at ${BASE_URL}/static-test/`);
-  addLifecycleBreadcrumb('server listening', {
-    baseUrl: BASE_URL,
-    port: PORT,
-    version: OO_EDITORS_VERSION
-  }, {
-    category: 'oo-editors.startup'
-  });
-});
+// NOTE(victor): 10 x 250ms (~2.5s) rides out a predecessor socket still tearing
+// down, well inside the parent's 30s readiness wait.
+const LISTEN_MAX_RETRIES = 10;
+const LISTEN_RETRY_DELAY_MS = 250;
+// On by default: evict the port holder between retries. Set
+// OO_EDITOR_KILL_PORT_ON_CONFLICT=0/false/no to only wait.
+const KILL_PORT_ON_CONFLICT = isEnvFlagEnabled(process.env.OO_EDITOR_KILL_PORT_ON_CONFLICT || 'true');
 
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    logError('STARTUP', `port ${PORT} is already in use`);
-  } else {
-    logError('STARTUP', 'failed to start HTTP server:', err);
-  }
-  addLifecycleBreadcrumb('server listen failed', {
-    code: err.code,
-    message: err.message,
-    port: PORT
-  }, {
-    category: 'oo-editors.startup',
-    level: 'error'
-  });
-  captureLifecycleException(err, {
-    level: 'error',
-    tags: {
-      phase: 'server-listen'
-    },
-    data: {
-      port: PORT
+startListeningWithRetry({
+  maxRetries: LISTEN_MAX_RETRIES,
+  attemptListen: ({ onListening, onError }) => {
+    server = app.listen(PORT, onListening);
+    server.on('error', onError);
+  },
+  onListening: () => {
+    logInfo('STARTUP', `server running at ${BASE_URL}/ version=${OO_EDITORS_VERSION}`);
+    logInfo('STARTUP', 'desktop stub injection enabled for all HTML files');
+    logInfo('STARTUP', `static test directory at ${BASE_URL}/static-test/`);
+    addLifecycleBreadcrumb('server listening', {
+      baseUrl: BASE_URL,
+      port: PORT,
+      version: OO_EDITORS_VERSION
+    }, {
+      category: 'oo-editors.startup'
+    });
+  },
+  onRetry: ({ retriesLeft }) => {
+    logError('STARTUP', `port ${PORT} is already in use, retrying (${retriesLeft} attempt(s) left)`);
+    const retryData = { port: PORT, retriesLeft };
+    if (KILL_PORT_ON_CONFLICT) {
+      const killedPids = killPortProcess(PORT);
+      retryData.killedPids = killedPids;
+      if (killedPids.length > 0) {
+        logInfo('STARTUP', `evicted process(es) holding port ${PORT}: ${killedPids.join(', ')}`);
+      }
     }
-  });
-  shutdownServer('server.listen error', 1);
+    addLifecycleBreadcrumb('server listen retry', retryData, {
+      category: 'oo-editors.startup',
+      level: 'warning'
+    });
+  },
+  scheduleRetry: (retry) => {
+    const retryTimer = setTimeout(retry, LISTEN_RETRY_DELAY_MS);
+    retryTimer.unref();
+  },
+  onFatalError: (err) => {
+    if (err.code === 'EADDRINUSE') {
+      logError('STARTUP', `port ${PORT} is already in use`);
+    } else {
+      logError('STARTUP', 'failed to start HTTP server:', err);
+    }
+    addLifecycleBreadcrumb('server listen failed', {
+      code: err.code,
+      message: err.message,
+      port: PORT
+    }, {
+      category: 'oo-editors.startup',
+      level: 'error'
+    });
+    captureLifecycleException(err, {
+      level: 'error',
+      tags: {
+        phase: 'server-listen'
+      },
+      data: {
+        port: PORT
+      }
+    });
+    shutdownServer('server.listen error', 1);
+  }
 });

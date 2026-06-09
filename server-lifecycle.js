@@ -1,3 +1,8 @@
+const { execFileSync } = require('child_process');
+
+// Cap port lookup so a wedged lsof/netstat can't freeze startup.
+const PORT_LOOKUP_TIMEOUT_MS = 2000;
+
 function isBrokenPipeError(error) {
   const message = error && typeof error.message === 'string' ? error.message : '';
   const mentionsBrokenPipe = /\bEPIPE\b/.test(message);
@@ -161,10 +166,128 @@ function handleProcessFailure(kind, error, handlers) {
   shutdown(kind, 1);
 }
 
+function isEnvFlagEnabled(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
+function getOwnPortCleanupExclusions(processInfo = process) {
+  return [processInfo.pid, processInfo.ppid].filter((pid) => Number.isInteger(pid) && pid > 0);
+}
+
+// PIDs LISTENING on the port. lsof prints one PID per line; netstat -ano lists
+// every connection, so keep only LISTENING rows ending in :port -- never a
+// client that just holds a socket to us.
+function parsePortHolderPids(output, platform, port) {
+  const lines = String(output).split('\n').map((line) => line.trim()).filter(Boolean);
+
+  if (platform === 'win32') {
+    return lines
+      .filter((line) => line.includes('LISTENING'))
+      .map((line) => line.split(/\s+/))
+      .filter((columns) => (columns[1] ?? '').endsWith(`:${port}`))
+      .map((columns) => Number(columns[columns.length - 1]))
+      .filter((pid) => Number.isInteger(pid) && pid > 0);
+  }
+
+  return lines
+    .map((line) => Number(line))
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
+}
+
+function lookupListenerPids(port, platform, run) {
+  const [file, args] = platform === 'win32'
+    ? ['netstat', ['-ano']]
+    : ['lsof', ['-t', `-iTCP:${port}`, '-sTCP:LISTEN']];
+
+  const output = run(file, args, { encoding: 'utf8', timeout: PORT_LOOKUP_TIMEOUT_MS });
+  return parsePortHolderPids(output, platform, port);
+}
+
+// Kill whatever LISTENS on the port; returns the PIDs killed. Never throws -- a
+// missing tool, vanished PID, or denied signal all degrade to []. Targets
+// listeners only and excludes this process and its parent.
+function killPortProcess(port, options = {}) {
+  try {
+    const platform = options.platform ?? process.platform;
+    const run = options.exec ?? execFileSync;
+    const killPid = options.kill ?? ((pid) => process.kill(pid, 'SIGKILL'));
+    const excluded = new Set(
+      (options.excludePids ?? getOwnPortCleanupExclusions())
+        .filter((pid) => Number.isInteger(pid) && pid > 0)
+    );
+
+    const pids = lookupListenerPids(port, platform, run);
+
+    const killed = [];
+    for (const pid of new Set(pids)) {
+      if (excluded.has(pid)) {
+        continue;
+      }
+      try {
+        killPid(pid);
+        killed.push(pid);
+      } catch {
+        // Gone (ESRCH) or denied (EPERM) -- skip it, keep killing the rest.
+      }
+    }
+    return killed;
+  } catch {
+    // No listener, missing tool, timeout, or bad options -- freed nothing.
+    return [];
+  }
+}
+
+// The client frees the port, then spawns this server as a separate process, so
+// a predecessor's socket may still be tearing down when this child binds,
+// surfacing a transient EADDRINUSE. Retry the bind a bounded number of times
+// instead of dying on the first conflict.
+function startListeningWithRetry(options) {
+  const {
+    attemptListen,
+    onListening,
+    onRetry,
+    onFatalError,
+    scheduleRetry,
+    maxRetries
+  } = options;
+
+  let listening = false;
+
+  function tryListen(retriesLeft) {
+    attemptListen({
+      onListening() {
+        listening = true;
+        onListening();
+      },
+      onError(error) {
+        // Only a bind-phase EADDRINUSE is retryable; once listening, any error is fatal.
+        if (!listening && retriesLeft > 0 && error.code === 'EADDRINUSE') {
+          onRetry({ retriesLeft, error });
+          scheduleRetry(() => tryListen(retriesLeft - 1));
+          return;
+        }
+
+        onFatalError(error);
+      }
+    });
+  }
+
+  tryListen(maxRetries);
+}
+
 module.exports = {
   createStdIoState,
   getErrorOwnProperties,
   handleProcessFailure,
   handleStdIoStreamError,
-  isBrokenPipeError
+  isBrokenPipeError,
+  isEnvFlagEnabled,
+  killPortProcess,
+  parsePortHolderPids,
+  startListeningWithRetry
 };
