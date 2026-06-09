@@ -5,8 +5,31 @@ import {
   createStdIoState,
   handleProcessFailure,
   handleStdIoStreamError,
-  isBrokenPipeError
+  isBrokenPipeError,
+  startListeningWithRetry
 } from '../server-lifecycle.js';
+
+function addrInUseError() {
+  const error = new Error('listen EADDRINUSE: address already in use :::38123');
+  error.code = 'EADDRINUSE';
+  return error;
+}
+
+// attemptListen fake that replays a queue of outcomes ('listen' | Error) so each
+// bind attempt resolves deterministically without real sockets or timers.
+function createReplayListen(outcomes) {
+  let attempts = 0;
+  function attemptListen({ onListening, onError }) {
+    attempts += 1;
+    const outcome = outcomes.shift();
+    if (outcome === 'listen') {
+      onListening();
+    } else {
+      onError(outcome);
+    }
+  }
+  return { attemptListen, getAttempts: () => attempts };
+}
 
 function createBrokenPipeError() {
   const error = new Error('write EPIPE');
@@ -176,6 +199,109 @@ describe('handleProcessFailure', () => {
     expect(exceptions).toHaveLength(1);
     expect(logCalls).toHaveLength(1);
     expect(shutdownCalls).toEqual([{ reason: 'unhandledRejection', code: 1 }]);
+  });
+});
+
+describe('startListeningWithRetry', () => {
+  const runImmediately = (fn) => fn();
+
+  test('rides out a transient EADDRINUSE and binds on a later attempt', () => {
+    const retries = [];
+    const fatals = [];
+    const listened = [];
+    const { attemptListen, getAttempts } = createReplayListen([
+      addrInUseError(),
+      addrInUseError(),
+      'listen'
+    ]);
+
+    startListeningWithRetry({
+      attemptListen,
+      onListening: () => listened.push(true),
+      onRetry: ({ retriesLeft }) => retries.push(retriesLeft),
+      onFatalError: (error) => fatals.push(error),
+      scheduleRetry: runImmediately,
+      maxRetries: 5
+    });
+
+    expect(getAttempts()).toBe(3);
+    expect(listened).toHaveLength(1);
+    expect(retries).toEqual([5, 4]);
+    expect(fatals).toHaveLength(0);
+  });
+
+  test('gives up after exhausting retries on a stuck port', () => {
+    const fatals = [];
+    const listened = [];
+    const { attemptListen, getAttempts } = createReplayListen([
+      addrInUseError(),
+      addrInUseError(),
+      addrInUseError()
+    ]);
+
+    startListeningWithRetry({
+      attemptListen,
+      onListening: () => listened.push(true),
+      onRetry: () => {},
+      onFatalError: (error) => fatals.push(error),
+      scheduleRetry: runImmediately,
+      maxRetries: 2
+    });
+
+    expect(getAttempts()).toBe(3);
+    expect(listened).toHaveLength(0);
+    expect(fatals).toHaveLength(1);
+    expect(fatals[0].code).toBe('EADDRINUSE');
+  });
+
+  test('does not retry non-port-conflict listen errors', () => {
+    const retries = [];
+    const fatals = [];
+    const permissionError = new Error('listen EACCES');
+    permissionError.code = 'EACCES';
+    const { attemptListen, getAttempts } = createReplayListen([permissionError]);
+
+    startListeningWithRetry({
+      attemptListen,
+      onListening: () => {},
+      onRetry: ({ retriesLeft }) => retries.push(retriesLeft),
+      onFatalError: (error) => fatals.push(error),
+      scheduleRetry: runImmediately,
+      maxRetries: 5
+    });
+
+    expect(getAttempts()).toBe(1);
+    expect(retries).toHaveLength(0);
+    expect(fatals).toEqual([permissionError]);
+  });
+
+  test('treats a late EADDRINUSE after a successful listen as fatal, never re-listening', () => {
+    const fatals = [];
+    const retries = [];
+    let attempts = 0;
+    let capturedOnError = null;
+
+    startListeningWithRetry({
+      attemptListen({ onListening, onError }) {
+        attempts += 1;
+        capturedOnError = onError;
+        onListening();
+      },
+      onListening: () => {},
+      onRetry: ({ retriesLeft }) => retries.push(retriesLeft),
+      onFatalError: (error) => fatals.push(error),
+      scheduleRetry: runImmediately,
+      maxRetries: 5
+    });
+
+    // The server is already listening; a later runtime EADDRINUSE must not
+    // re-enter the bind-retry path (which would call attemptListen again).
+    capturedOnError(addrInUseError());
+
+    expect(attempts).toBe(1);
+    expect(retries).toHaveLength(0);
+    expect(fatals).toHaveLength(1);
+    expect(fatals[0].code).toBe('EADDRINUSE');
   });
 });
 

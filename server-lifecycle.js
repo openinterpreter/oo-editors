@@ -161,10 +161,52 @@ function handleProcessFailure(kind, error, handlers) {
   shutdown(kind, 1);
 }
 
+// The desktop app frees port 38123 in the Electron process and then spawns this
+// server as a separate Node process, so the "port is free" check and the real
+// bind happen in different processes a spawn apart. A predecessor's listening
+// socket may still be tearing down when this child binds, surfacing a transient
+// EADDRINUSE. Retry the bind a bounded number of times before giving up so the
+// editor backend rides out that window instead of dying on first conflict.
+function startListeningWithRetry(options) {
+  const {
+    attemptListen,
+    onListening,
+    onRetry,
+    onFatalError,
+    scheduleRetry,
+    maxRetries
+  } = options;
+
+  let listening = false;
+
+  function tryListen(retriesLeft) {
+    attemptListen({
+      onListening() {
+        listening = true;
+        onListening();
+      },
+      onError(error) {
+        // Only a port conflict during the bind phase is retryable. Once the
+        // server is listening, every error (a late EADDRINUSE included) is fatal.
+        if (!listening && retriesLeft > 0 && error.code === 'EADDRINUSE') {
+          onRetry({ retriesLeft, error });
+          scheduleRetry(() => tryListen(retriesLeft - 1));
+          return;
+        }
+
+        onFatalError(error);
+      }
+    });
+  }
+
+  tryListen(maxRetries);
+}
+
 module.exports = {
   createStdIoState,
   getErrorOwnProperties,
   handleProcessFailure,
   handleStdIoStreamError,
-  isBrokenPipeError
+  isBrokenPipeError,
+  startListeningWithRetry
 };
