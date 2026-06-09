@@ -1566,9 +1566,9 @@ app.use('/static-test', express.static(path.join(__dirname, 'static-test'), {
 // parent's 30s readiness wait. A genuinely stuck port still fails after retries.
 const LISTEN_MAX_RETRIES = 10;
 const LISTEN_RETRY_DELAY_MS = 250;
-// Opt-in: when OO_EDITOR_KILL_PORT_ON_CONFLICT is set, evict whatever process
-// holds the port between retries instead of only waiting for it to free itself.
-const KILL_PORT_ON_CONFLICT = isEnvFlagEnabled(process.env.OO_EDITOR_KILL_PORT_ON_CONFLICT);
+// On by default: evict whatever process holds the port between retries. Set
+// OO_EDITOR_KILL_PORT_ON_CONFLICT to 0/false/no to opt out and only wait.
+const KILL_PORT_ON_CONFLICT = isEnvFlagEnabled(process.env.OO_EDITOR_KILL_PORT_ON_CONFLICT || 'true');
 
 startListeningWithRetry({
   maxRetries: LISTEN_MAX_RETRIES,
